@@ -2,6 +2,9 @@
 
 ## 공개 웹 데모
 
+**배포 URL:** https://courseful-date-agent-demo.onrender.com  
+**소스 저장소:** https://github.com/cyb3rmaya/courseful-date-agent-demo
+
 `plan.md`의 코스 입력·Timeline·장소 카드·검증·부분 재계획 흐름을 브라우저에서
 확인할 수 있도록 FastAPI 단일 서비스 웹 데모를 제공합니다.
 
