@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: courseful-date-agent-demo
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements-deploy.txt
+    startCommand: uvicorn web_app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true

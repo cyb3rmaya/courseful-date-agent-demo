@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="복합 조건을 검증해 실행 가능한 데이트 코스를 구성하는 무료 Mock Agent 데모">
+  <title>Courseful · 상황 인지형 코스 플래너</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#planner-result">결과로 건너뛰기</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Courseful 홈">
+      <span class="brand-mark" aria-hidden="true">C</span>
+      <span>Courseful</span>
+    </a>
+    <div class="header-badge"><span class="status-dot" aria-hidden="true"></span> 무료 Mock Agent</div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="hero-title">
+      <p class="eyebrow">CONTEXT-AWARE PLANNING</p>
+      <h1 id="hero-title">조건은 복잡하게.<br><span>하루는 자연스럽게.</span></h1>
+      <p class="hero-copy">날씨, 예산, 이동, 영업시간을 도구로 확인하고 실행 가능한 코스만 남깁니다.</p>
+    </section>
+
+    <section class="planner-shell" aria-label="코스 생성기">
+      <form id="planner-form" class="planner-form">
+        <div class="prompt-wrap">
+          <label for="request">어떤 하루를 원하세요?</label>
+          <textarea id="request" name="request" maxlength="800" rows="3" placeholder="예: 부산에서 비가 와도 편하게 즐길 수 있는 조용한 커플 코스"></textarea>
+        </div>
+
+        <div class="form-grid">
+          <label>지역
+            <select name="location">
+              <option value="부산">부산</option>
+              <option value="서울">서울</option>
+            </select>
+          </label>
+          <label>동행
+            <select name="companion_type">
+              <option value="couple">커플</option>
+              <option value="family">가족</option>
+              <option value="friends">친구</option>
+            </select>
+          </label>
+          <label>날짜
+            <input type="date" name="date" required>
+          </label>
+          <label>인원
+            <input type="number" name="party_size" value="2" min="1" max="10" required>
+          </label>
+          <label>시작
+            <input type="time" name="start_time" value="14:00" required>
+          </label>
+          <label>종료
+            <input type="time" name="end_time" value="21:00" required>
+          </label>
+          <label>총예산
+            <div class="money-input"><input type="number" name="budget" value="100000" min="0" step="10000" required><span>원</span></div>
+          </label>
+          <label>이동
+            <select name="transportation">
+              <option value="public_transport">대중교통</option>
+              <option value="walking">도보</option>
+              <option value="car">자동차</option>
+            </select>
+          </label>
+        </div>
+
+        <fieldset>
+          <legend>선호하는 분위기</legend>
+          <div class="choice-row" data-choice-group="soft_preferences">
+            <label><input type="checkbox" value="카페" checked><span>카페</span></label>
+            <label><input type="checkbox" value="식사"><span>식사</span></label>
+            <label><input type="checkbox" value="문화"><span>문화</span></label>
+            <label><input type="checkbox" value="야경" checked><span>야경</span></label>
+            <label><input type="checkbox" value="사진"><span>사진</span></label>
+            <label><input type="checkbox" value="대화" checked><span>대화</span></label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>꼭 지켜야 할 조건</legend>
+          <div class="choice-row" data-choice-group="hard_constraints">
+            <label><input type="checkbox" value="비 오면 실내" checked><span>비 오면 실내</span></label>
+            <label><input type="checkbox" value="걷기 어려움"><span>걷기 어려움</span></label>
+            <label><input type="checkbox" value="실내"><span>항상 실내</span></label>
+          </div>
+        </fieldset>
+
+        <button class="primary-button" type="submit">
+          <span>검증된 코스 만들기</span><span aria-hidden="true">→</span>
+        </button>
+        <p class="form-note">실시간 예약·결제는 수행하지 않으며, 현재 데이터는 교육용 Mock입니다.</p>
+      </form>
+    </section>
+
+    <section id="planner-result" class="result-shell" aria-live="polite" hidden>
+      <div class="result-heading">
+        <div>
+          <p class="eyebrow">VALIDATED COURSE</p>
+          <h2>오늘의 추천 코스</h2>
+        </div>
+        <div id="validation-badge" class="validation-badge">검증 중</div>
+      </div>
+
+      <div class="result-grid">
+        <div class="timeline-panel">
+          <div id="summary-strip" class="summary-strip"></div>
+          <ol id="timeline" class="timeline"></ol>
+        </div>
+        <aside class="map-panel" aria-label="코스 위치 개요">
+          <div class="map-header">
+            <span>코스 위치 개요</span>
+            <span class="map-note">실제 지도 아님</span>
+          </div>
+          <svg id="route-map" viewBox="0 0 640 420" role="img" aria-label="장소 순서를 나타내는 개략도"></svg>
+        </aside>
+      </div>
+
+      <div id="warnings" class="warnings" hidden></div>
+      <details class="trace-panel">
+        <summary>Agent 실행 내역</summary>
+        <div id="trace"></div>
+      </details>
+    </section>
+
+    <section class="principles" aria-labelledby="principles-title">
+      <p class="eyebrow">HOW IT WORKS</p>
+      <h2 id="principles-title">추측보다 검증을 우선합니다.</h2>
+      <div class="principle-grid">
+        <article><span>01</span><h3>상황 파악</h3><p>동행, 시간, 예산과 선호 조건을 구조화합니다.</p></article>
+        <article><span>02</span><h3>도구 선택</h3><p>날씨, 장소, 경로처럼 필요한 정보만 조회합니다.</p></article>
+        <article><span>03</span><h3>결정론적 검증</h3><p>비용과 시간 계산은 LLM의 추측에 맡기지 않습니다.</p></article>
+        <article><span>04</span><h3>부분 재계획</h3><p>문제가 생긴 장소만 교체하고 나머지는 보존합니다.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Courseful · PLAN.md 기반 교육용 공개 데모</p>
+    <a href="/docs">API 문서</a>
+  </footer>
+</body>
+</html>
