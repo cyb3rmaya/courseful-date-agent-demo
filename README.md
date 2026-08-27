@@ -1,37 +1,37 @@
-# 03 MCP — Weather + Tour / Streamable HTTP
+# 03 MCP — Weather + Tour 나들이 코스
 
-현재 과제는 활성 MCP Server를 정확히 두 개로 제한합니다.
+친구·가족·연인 중 한 유형을 고르면 날씨를 확인하고 명소 세 곳을 한 지도에 연결하는 공개 웹 앱입니다. 사용자 입력은 **지역, 날짜, 동행 유형** 세 가지이며 가격·호텔·복잡한 시나리오 선택은 없습니다.
 
-| Server | 기본 URL | Tool |
-| --- | --- | --- |
-| Weather MCP | `http://127.0.0.1:8101/mcp` | `get_current_weather`, `get_weather_forecast` |
-| Tour MCP | `http://127.0.0.1:8102/mcp` | `search_hotels`, `search_spots` |
+## 활성 구성
 
-웹 앱의 입력은 지역, 여행 날짜, 호텔 1박 상한 세 가지뿐입니다. 기존 Route·Booking 서버와 많은 시나리오 선택지는 현재 활성 레지스트리와 UI에서 제거했습니다. 예전 stdio 학습 파일은 강의 단계 회귀 테스트를 위해 남아 있지만 `mcp_servers.json`에는 등록되지 않습니다.
+| Server | 기본 URL | 제공 Tool | 현재 웹 흐름 |
+| --- | --- | --- | --- |
+| Weather MCP | `http://127.0.0.1:8101/mcp` | `get_current_weather`, `get_weather_forecast` | 두 Tool 모두 호출 |
+| Tour MCP | `http://127.0.0.1:8102/mcp` | `search_hotels`, `search_spots` | `search_spots`만 호출 |
 
-## 구조
+`search_hotels`는 “서버에 Tool을 더해 확장한다”는 강의 구조와 독립 호출 테스트를 위해 보존합니다. 공개 화면과 기본 Agent는 호텔이나 가격을 요청하지 않습니다. Route·Booking 서버와 과도한 시나리오 선택지는 활성 레지스트리 및 UI에 등록하지 않았습니다.
 
 ```mermaid
 flowchart LR
-    Browser[Browser UI] --> API[FastAPI Host]
+    Browser[Browser UI\n지역·날짜·친구/가족/연인] --> API[FastAPI Host]
     API --> Registry[mcp_servers.json]
-    API --> Agent[MultiMCP Client / Agent]
-    Agent -->|Streamable HTTP :8101| Weather[Computer A\nWeather MCP]
-    Agent -->|Streamable HTTP :8102| Tour[Computer B\nTour MCP]
-    Weather --> KMA[기상청 단기예보 API]
-    Tour --> Hotel[가격 필터 카탈로그]
-    Tour --> KakaoLocal[Kakao Local API]
-    Browser --> KakaoMap[Kakao Maps JS SDK]
+    API --> Agent[MultiMCP Client]
+    Agent -->|Streamable HTTP :8101| Weather[Weather MCP]
+    Agent -->|Streamable HTTP :8102| Tour[Tour MCP]
+    Weather --> KMA[기상청 단기예보]
+    Weather --> OpenMeteo[Open-Meteo 무료 대체]
+    Tour --> KakaoLocal[Kakao Local API 또는 지역 카탈로그]
+    Browser --> KakaoMap[Kakao Maps JS SDK\n번호 마커·연결선]
 ```
 
-로컬·무료 Render 데모에서는 한 머신 안의 두 독립 포트로 실행합니다. 물리적인 두 컴퓨터로 분리할 때는 각각 서버 파일을 실행한 뒤 Host의 환경변수만 바꿉니다.
+한 대에서 실행할 때는 FastAPI Host가 비어 있는 8101·8102 포트를 감지해 두 MCP를 자식 프로세스로 시작합니다. 두 컴퓨터로 분리할 때는 서버별 HTTPS 주소만 환경 변수로 바꿉니다.
 
 ```env
 WEATHER_MCP_URL=https://weather-host.example/mcp
 TOUR_MCP_URL=https://tour-host.example/mcp
 ```
 
-Client/Agent 코드는 URL 변경을 제외하면 동일합니다.
+Client와 Agent 코드는 URL 변경 외에는 동일합니다.
 
 ## 로컬 실행
 
@@ -41,49 +41,38 @@ pip install -r requirements-deploy.txt
 uvicorn web_app:app --host 127.0.0.1 --port 8000
 ```
 
-웹 앱은 비어 있는 8101·8102 포트를 감지해 두 MCP 서버를 자식 프로세스로 시작하고 FastAPI lifespan 동안 재사용합니다.
-
-두 서버를 직접 확인하려면 터미널 두 개를 사용합니다.
+직접 두 서버를 띄우려면 별도 터미널에서 실행합니다.
 
 ```powershell
 python weather_mcp_server.py --host 127.0.0.1 --port 8101
 python tour_mcp_server.py --host 127.0.0.1 --port 8102
-```
-
-세 번째 터미널에서 실제 `tools/list`와 네 Tool 호출을 확인합니다.
-
-```powershell
 python 07_multi_mcp_check.py
 ```
-
-웹 주소:
 
 - UI: `http://127.0.0.1:8000`
 - API 문서: `http://127.0.0.1:8000/docs`
 - 상태: `http://127.0.0.1:8000/health`
 
-## 무료 실데이터 연결
+## 무료 데이터와 지도 설정
 
-`.env.example`을 참고해 환경변수를 설정합니다. 키는 저장소에 커밋하지 않습니다.
+`.env.example`을 참고합니다. 키가 없거나 외부 Provider가 응답하지 않아도 앱은 출처와 경고를 표시하고 무료 대체 데이터로 동작합니다.
 
 ### 기상청
 
-1. Chrome에서 공공데이터포털의 [기상청 단기예보 조회서비스](https://www.data.go.kr/data/15084084/openapi.do)를 엽니다.
-2. 활용신청 후 마이페이지에서 일반 인증키(Decoding)를 확인합니다.
-3. `KMA_SERVICE_KEY`에 해당 인증키를 설정합니다.
-4. Weather MCP를 재시작합니다.
+1. Chrome에서 [기상청 단기예보 조회서비스](https://www.data.go.kr/data/15084084/openapi.do)를 엽니다.
+2. 활용 신청 후 일반 인증키(Decoding)를 확인합니다.
+3. `.env`의 `KMA_SERVICE_KEY`에 저장하고 앱을 다시 시작합니다.
 
-현재 날씨는 초단기실황, 날짜 날씨는 단기예보를 우선 호출합니다. 기상청 키가 없거나 응답 장애가 생기면 키가 필요 없는 Open-Meteo 실데이터로 자동 전환하며 `source`와 경고에 전환 사실을 표시합니다. 두 Provider가 모두 실패할 때만 `provider_status: fallback`, `source: local-weather-fallback`을 반환합니다. 폴백을 실데이터처럼 표시하지 않습니다.
+기상청 호출이 실패하면 Open-Meteo로 전환합니다. 두 Provider 모두 실패할 때만 `local-weather-fallback`을 반환하며 실제 데이터처럼 숨기지 않습니다.
 
 ### Kakao 지도와 명소
 
 1. Chrome에서 [Kakao Developers 앱 콘솔](https://developers.kakao.com/console/app)을 엽니다.
-2. 앱을 만들고 Kakao Map 사용 설정을 켭니다.
-3. JavaScript 키에 `http://127.0.0.1:8000`과 공개 배포 URL을 SDK 허용 도메인으로 등록합니다.
-4. `KAKAO_JAVASCRIPT_KEY`에는 JavaScript 키를 설정합니다.
-5. Tour MCP의 실시간 장소 검색도 쓰려면 `KAKAO_REST_API_KEY`에 REST API 키를 별도로 설정합니다.
+2. JavaScript 키를 `KAKAO_JAVASCRIPT_KEY`에 설정합니다.
+3. 로컬 주소와 공개 배포 주소를 JavaScript SDK 허용 도메인에 등록합니다.
+4. 실시간 장소 검색도 필요하면 REST API 키를 `KAKAO_REST_API_KEY`에 별도로 설정합니다.
 
-JavaScript 키는 브라우저 SDK에 전달되는 공개 플랫폼 키이므로 네트워크에서 보입니다. 보안 경계는 키 은닉이 아니라 Kakao 콘솔의 허용 도메인 제한입니다. REST API 키와 기상청 키는 브라우저 응답에 포함하지 않습니다.
+JavaScript 키는 브라우저용 공개 식별자이므로 응답에 전달되며, 허용 도메인 제한이 필수입니다. REST API 키와 기상청 키는 브라우저에 보내지 않습니다.
 
 ## 웹 API
 
@@ -94,14 +83,19 @@ Content-Type: application/json
 {
   "location": "부산",
   "date": "2026-08-28",
-  "max_hotel_price": 150000
+  "companion": "couple"
 }
 ```
 
-응답에는 `weather`, `hotels`, `spots`와 함께 다음 실행 증거가 포함됩니다.
+`companion`은 `friend`, `family`, `couple` 중 하나입니다. 응답은 날씨와 순서가 있는 `course.stops` 세 곳을 반환합니다.
 
 ```json
 {
+  "course": {
+    "companion_label": "연인",
+    "stop_count": 3,
+    "stops": [{"sequence": 1}, {"sequence": 2}, {"sequence": 3}]
+  },
   "mcp_execution": {
     "architecture": "two_independent_http_servers",
     "transport": "streamable_http",
@@ -114,13 +108,13 @@ Content-Type: application/json
 
 ## AI Agent
 
-`06_mcp_call.py`는 `mcp_servers.json`에서 서버를 읽고 `tools/list`로 네 Tool을 발견한 뒤 OpenAI Tool loop를 수행합니다.
+`06_mcp_call.py`는 `mcp_servers.json`의 두 서버에서 Tool을 발견하고 OpenAI Tool loop를 실행합니다.
 
 ```powershell
-python 06_mcp_call.py "부산의 현재 날씨와 내일 예보, 15만원 이하 호텔과 명소를 찾아줘"
+python 06_mcp_call.py "부산 내일 날씨를 보고 연인과 갈 명소 세 곳을 코스로 묶어줘"
 ```
 
-CLI에만 `OPENAI_API_KEY`가 필요합니다. 공개 웹 앱은 유료 LLM 없이 동일한 네 MCP Tool을 결정론적으로 호출하므로 무료 운영이 가능합니다.
+CLI에만 `OPENAI_API_KEY`가 필요합니다. 공개 웹 앱은 유료 LLM 없이 결정론적으로 같은 MCP Tool을 호출하므로 무료 운영이 가능합니다.
 
 ## 검증
 
@@ -128,22 +122,21 @@ CLI에만 `OPENAI_API_KEY`가 필요합니다. 공개 웹 앱은 유료 LLM 없�
 pytest tests -q
 ```
 
-현재 핵심 검증 항목:
+검증 항목은 다음과 같습니다.
 
-- 활성 서버가 Weather·Tour 두 개뿐인지
-- 전송 방식이 모두 Streamable HTTP인지
-- `tools/list` 결과가 네 Tool과 정확히 일치하는지
-- 15만원 상한 필터가 실제 결과 가격에 적용되는지
-- 웹 요청이 두 서버를 호출하고 실행 trace를 반환하는지
-- 한국어 파일과 UI에 Unicode 대체문자가 없는지
+- 활성 서버가 Weather·Tour 두 개이며 모두 Streamable HTTP인지
+- `tools/list`가 두 서버의 Tool 네 개를 발견하는지
+- 공개 API가 실제로 현재 날씨·예보·명소 Tool 세 개를 호출하는지
+- 친구·가족·연인에 따라 세 장소의 우선 순서가 달라지는지
+- 가격·호텔 같은 이전 입력을 API가 거부하는지
+- 한글, CSP, Kakao SDK 및 모바일 화면이 정상인지
 
 ## 배포 판단
 
-- DB/Auth/예약 상태가 없으므로 Supabase는 사용하지 않습니다.
-- 공개 UI와 Host는 기존 Render Free Web Service 한 개를 사용합니다.
-- 무료 데모에서는 두 MCP 프로세스를 같은 Render 인스턴스의 localhost 포트로 운영합니다.
-- 두 물리 서버가 필수인 운영 환경에서는 Weather와 Tour를 각 HTTPS 서비스로 배포하고 URL 환경변수로 연결해야 합니다. 이 경우 서비스 수와 보안 운영 비용이 늘어납니다.
-- 외부 MCP를 공개할 때는 TLS, 인증·권한, Host/Origin 검증, rate limit, 관측 로그를 추가해야 합니다. 현재 localhost child-server 구성은 공개 MCP endpoint가 아닙니다.
+- 저장해야 할 예약·사용자 데이터가 없으므로 Supabase는 사용하지 않습니다.
+- 공개 UI와 두 로컬 MCP 프로세스는 하나의 Render Web Service 안에서 실행할 수 있어 무료 데모에 적합합니다.
+- 무료 인스턴스는 유휴 후 첫 요청이 느릴 수 있습니다.
+- 실제로 물리적인 두 컴퓨터에 배치하면 각 MCP를 HTTPS 서비스로 분리하고 인증, 접근 제어, rate limit, 관측 로그를 추가해야 합니다.
 
 ## 공식 참고
 

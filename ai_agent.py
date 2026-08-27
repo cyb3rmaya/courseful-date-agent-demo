@@ -17,6 +17,11 @@ REQUIRED_TOOLS = {
     "search_hotels",
     "search_spots",
 }
+ACTIVE_COURSE_TOOLS = {
+    "get_current_weather",
+    "get_weather_forecast",
+    "search_spots",
+}
 # 이전 1서버 stdio 학습 예제의 독립 테스트 호환용입니다. 활성 레지스트리에는 포함되지 않습니다.
 COURSE_REQUIRED_TOOLS = {
     "get_weather",
@@ -30,18 +35,19 @@ COURSE_REQUIRED_TOOLS = {
 }
 MAX_TOOL_ROUNDS = 6
 
-SYSTEM_PROMPT = """당신은 한국 국내 여행 브리프 Agent입니다.
-사용자 요청에서 지역, 여행 날짜, 1박 호텔 상한을 파악하세요.
+SYSTEM_PROMPT = """당신은 한국 국내 나들이 코스 Agent입니다.
+사용자 요청에서 지역, 날짜, 동행 유형(친구·가족·연인)을 파악하세요.
 현재 날씨는 get_current_weather, 날짜 예보는 get_weather_forecast,
-호텔은 search_hotels, 명소는 search_spots를 사용합니다.
+코스 후보는 search_spots를 사용합니다. 호텔과 가격은 묻거나 검색하지 마세요.
 요청을 충족하기 전에 필요한 Tool을 실제로 호출하고, Tool 결과에 없는 내용을 만들지 마세요.
 source, provider_status, warning을 숨기지 마세요.
+장소는 세 곳만 고르고 동행 유형에 맞는 순서로 연결하세요.
+친구는 문화→자연→야경, 가족은 역사→문화→자연, 연인은 자연→문화→야경 순서를 우선합니다.
 마지막 답변은 다음 JSON 형태로만 작성하세요.
 {
-  "intent_summary": {"location": "", "date": "", "max_price_per_night": 0},
+  "intent_summary": {"location": "", "date": "", "companion": "friend|family|couple"},
   "weather": {"current": {}, "forecast": {}},
-  "hotels": [],
-  "spots": [],
+  "course": {"title": "", "stops": []},
   "warnings": []
 }
 """
@@ -90,7 +96,7 @@ class DateCourseAgent:
         async with self.connector() as mcp_client:
             discovered = (await mcp_client.list_tools()).tools
             available = {tool.name for tool in discovered}
-            missing = REQUIRED_TOOLS - available
+            missing = ACTIVE_COURSE_TOOLS - available
             if missing:
                 raise RuntimeError("필수 MCP Tool이 없습니다: " + ", ".join(sorted(missing)))
             tools = [_tool_definition(tool) for tool in discovered]
@@ -160,6 +166,7 @@ class DateCourseAgent:
 TravelAgent = DateCourseAgent
 
 __all__ = [
+    "ACTIVE_COURSE_TOOLS",
     "COURSE_REQUIRED_TOOLS",
     "DateCourseAgent",
     "MAX_TOOL_ROUNDS",

@@ -1,4 +1,4 @@
-"""호텔과 관광 명소를 제공하는 독립 Streamable HTTP MCP Server."""
+"""관광 명소와 수업용 호텔 검색을 제공하는 독립 Streamable HTTP MCP Server."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from travel_data import (
 
 mcp = FastMCP(
     "tour-http",
-    instructions="1박 최대 가격으로 호텔을 찾고, 지역의 관광 명소를 검색합니다.",
+    instructions="코스 구성을 위한 지역 명소와 좌표를 제공합니다. 호텔 검색은 MCP 확장 수업용으로 보존합니다.",
     json_response=True,
     stateless_http=True,
 )

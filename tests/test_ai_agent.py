@@ -13,7 +13,7 @@ from types import SimpleNamespace
 MODULE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE_DIR))
 
-from ai_agent import DateCourseAgent, REQUIRED_TOOLS  # noqa: E402
+from ai_agent import ACTIVE_COURSE_TOOLS, DateCourseAgent, REQUIRED_TOOLS  # noqa: E402
 
 
 class FakeTool:
@@ -54,10 +54,10 @@ class FakeResponses:
         if self.count == 1:
             calls = [
                 SimpleNamespace(type="function_call", name=name, arguments="{}", call_id=f"call-{index}")
-                for index, name in enumerate(sorted(REQUIRED_TOOLS))
+                for index, name in enumerate(sorted(ACTIVE_COURSE_TOOLS))
             ]
             return SimpleNamespace(id="r1", output=calls, output_text="")
-        return SimpleNamespace(id="r2", output=[], output_text=json.dumps({"hotels": [], "spots": []}))
+        return SimpleNamespace(id="r2", output=[], output_text=json.dumps({"course": {"stops": []}}))
 
 
 class FakeOpenAI:
@@ -65,7 +65,7 @@ class FakeOpenAI:
         self.responses = FakeResponses()
 
 
-def test_agent_uses_exactly_four_discovered_tools() -> None:
+def test_agent_uses_three_course_tools_and_discovers_full_tour_catalog() -> None:
     mcp = FakeMCP()
 
     @asynccontextmanager
@@ -73,8 +73,9 @@ def test_agent_uses_exactly_four_discovered_tools() -> None:
         yield mcp
 
     agent = DateCourseAgent(model="fake", client=FakeOpenAI(), connector=connector)
-    result = asyncio.run(agent.answer("부산 내일 날씨와 15만원 이하 호텔, 명소를 찾아줘"))
-    assert {name for name, _ in mcp.calls} == REQUIRED_TOOLS
+    result = asyncio.run(agent.answer("부산 내일 날씨를 보고 연인 코스 세 곳을 묶어줘"))
+    assert {name for name, _ in mcp.calls} == ACTIVE_COURSE_TOOLS
     assert result["agent_execution"]["transport"] == "streamable_http"
     assert result["agent_execution"]["servers"] == ["weather", "tour"]
-    assert len(result["agent_execution"]["trace"]) == 4
+    assert result["agent_execution"]["discovered_tools"] == sorted(REQUIRED_TOOLS)
+    assert len(result["agent_execution"]["trace"]) == 3
