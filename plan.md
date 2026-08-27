@@ -1,3 +1,32 @@
+# 현재 과제 범위 — Two Streamable HTTP MCP (우선 적용)
+
+이 문서의 장기 Date Course 계획은 설계 원칙으로 유지하되, 현재 과제 구현 범위는 아래가 우선한다.
+
+```text
+Browser UI (지역 · 날짜 · 호텔 1박 상한)
+  └─ FastAPI Host / Agent
+      ├─ Streamable HTTP → Weather MCP (Computer A / 기본 8101)
+      │   ├─ get_current_weather
+      │   └─ get_weather_forecast
+      └─ Streamable HTTP → Tour MCP (Computer B / 기본 8102)
+          ├─ search_hotels(location, max_price_per_night)
+          └─ search_spots(location)
+```
+
+현재 성공 조건:
+
+- 활성 MCP Server는 Weather와 Tour 두 개뿐이다.
+- 두 서버는 stdio가 아닌 Streamable HTTP URL로 독립 연결된다.
+- 서버 목록과 URL은 `mcp_servers.json`에 있고 Agent는 `tools/list`로 네 Tool을 발견한다.
+- 로컬 기본값은 한 컴퓨터의 서로 다른 포트지만, `WEATHER_MCP_URL`과 `TOUR_MCP_URL`을 바꾸면 두 컴퓨터로 분리된다.
+- Weather는 기상청 키가 있으면 우선 사용하고, 없거나 실패하면 무료 무키 Open-Meteo 실데이터로 전환한다. 두 Provider가 모두 실패할 때만 `provider_status=fallback`을 반환한다.
+- Tour의 호텔은 상한 가격을 결정론적으로 필터링하고, 명소는 Kakao REST 키가 있으면 실검색을 사용한다.
+- UI는 세 입력만 받고 Kakao JavaScript 키가 있으면 명소 좌표를 지도 마커로 표시한다.
+- 외부 데이터의 `source`, `fetched_at`, 폴백 여부를 숨기지 않는다.
+- DB, Supabase, 유료 LLM은 이 조회 전용 MVP에 추가하지 않는다.
+
+---
+
 # PLAN.md — Context-Aware Date Course AI Agent
 
 > **프로젝트 주제명**  
