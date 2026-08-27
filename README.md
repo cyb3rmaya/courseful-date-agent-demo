@@ -13,7 +13,12 @@ web_app.py
 ├─ static/index.html
 ├─ static/styles.css
 ├─ static/app.js
-├─ date_course_mcp_server.py
+├─ mcp_servers.json
+├─ weather_mcp_server.py
+├─ tour_mcp_server.py
+├─ route_mcp_server.py
+├─ booking_mcp_server.py
+├─ booking_tools.py
 └─ date_course_tools.py
 ```
 
@@ -50,8 +55,9 @@ API 문서  http://127.0.0.1:8000/docs
 
 ### Tour MCP 계획 통합
 
-`tour_mcp_plan_package.zip`의 문서는 다른 멀티 서버 실습을 기준으로 작성되어 있어
-파일 구조를 그대로 복사하지 않고 현재 단일 Date Course MCP Server 구조에 맞췄습니다.
+`tour_mcp_plan_package.zip`의 관광 Tool 계약을 먼저 기존 서버에 통합했고, 이후 멀티
+MCP 과제 요구에 맞춰 같은 도메인 함수를 재사용하는 독립 Tour MCP Adapter로
+분리했습니다. 기존 `date_course_mcp_server.py`는 이전 예제와 테스트의 호환용입니다.
 
 ```text
 get_tourist_attractions(city, categories, limit)
@@ -66,6 +72,78 @@ get_tourist_attractions(city, categories, limit)
 - 운영시간·가격처럼 바뀌는 값은 관광 카탈로그에서 확정하지 않습니다.
 - 공개 UI는 관광 유형, 명소 설명, 검증 동선을 한 화면에 함께 표시합니다.
 
+### 멀티 MCP + Booking 과제 구현
+
+`mcp_servers.json`이 실행할 서버 목록을 소유합니다. Agent 코드에는 서버별 `if/else`
+분기를 두지 않습니다. `_multi_mcp_client.py`가 설정을 읽어 네 stdio 프로세스를 같은
+수명 주기에서 열고, `tools/list` 결과로 Tool 이름과 서버를 매핑합니다.
+
+| 서버 | 역할 | Tool |
+| --- | --- | --- |
+| `weather` | 날씨 조회 | `get_weather` |
+| `tour` | 관광·장소 조회 | `get_tourist_attractions`, `search_places`, `get_place_details`, `search_date_context` |
+| `route` | 경로·예산·검증 | `calculate_route`, `estimate_course_budget`, `validate_course` |
+| `booking` | 예약 액션 | `prepare_booking`, `confirm_booking`, `get_booking_status` |
+
+동시 연결 확인:
+
+```powershell
+python .\07_multi_mcp_check.py
+```
+
+정상 출력은 서버 4개와 Tool 11개를 보여줍니다. 확인되지 않은 예약을 막기 위해 검사
+스크립트는 `prepare_booking`까지만 호출하고 `confirm_booking`은 실행하지 않습니다.
+
+Booking 서버는 외부 예약사, 결제, DB INSERT를 호출하지 않습니다. 초안 token은 같은
+입력에 대해 동일하게 만들어지고, `user_confirmed=true`일 때만 프로세스 메모리의
+상태를 모의 확정합니다. stdio의 `stdout`은 JSON-RPC 전용이므로 과제에서 요구한
+`print` 동작 확인은 UTF-8 `stderr` 로그로 구현했습니다.
+
+```mermaid
+flowchart LR
+    UI[브라우저 UI] --> API[FastAPI /api/v1]
+    API --> Course[결정론적 Course 로직]
+    API --> BookingAPI[Booking API]
+    CLI[06_mcp_call.py] --> Agent[DateCourseAgent]
+    Agent --> Host[_multi_mcp_client.py]
+    Registry[mcp_servers.json] --> Host
+    Host --> W[Weather MCP\nstdio]
+    Host --> T[Tour MCP\nstdio]
+    Host --> R[Route MCP\nstdio]
+    Host --> B[Booking MCP\nstdio]
+    BookingAPI --> B
+    W --> Shared[date_course_tools.py]
+    T --> Shared
+    R --> Shared
+    B --> BookingCore[booking_tools.py\n메모리 전용]
+```
+
+#### stdio와 원격 HTTP
+
+| 구분 | stdio | Streamable HTTP |
+| --- | --- | --- |
+| 프로세스 | Client가 로컬 자식 프로세스를 실행 | MCP 서버가 독립 서비스로 실행 |
+| 연결 범위 | 같은 머신의 학습·개발 환경에 적합 | 다른 서버·공장·지역의 서비스 연결 가능 |
+| 주소 | 실행 명령과 파일 경로 | `https://service.example/mcp` 같은 endpoint |
+| 필수 운영 요소 | 프로세스 수명·stderr 로그 | TLS, 인증·권한, Origin 검증, rate limit, 관측성 |
+
+과제에서 말한 HTTP(SSE)의 원격 연결 취지는 맞습니다. 현재 MCP 표준은 stdio와
+Streamable HTTP를 표준 전송으로 정의하며, Streamable HTTP가 2024-11-05 버전의
+기존 HTTP+SSE 전송을 대체했습니다. SSE는 Streamable HTTP 응답 스트리밍에 선택적으로
+사용될 수 있습니다. 공식 명세: https://modelcontextprotocol.io/specification/2025-06-18/basic/transports
+
+현재 과제는 외부 액션을 열지 않기 위해 네 서버를 로컬 stdio로 실행합니다. Booking을
+원격 배포할 때는 단순히 `0.0.0.0`에 공개하지 않고 사용자 인증, Tool별 권한,
+멱등성 저장소, 감사 로그, Origin 검증을 먼저 추가해야 합니다.
+
+#### 프론트엔드 연동
+
+현재 정적 UI가 이미 `POST /api/v1/course-plans`와 `POST /api/v1/bookings`를 호출하며,
+Booking API는 JSON 레지스트리에서 `booking` 서버만 선택해 실제 stdio MCP Tool을
+호출합니다.
+React/Next.js로 교체해도 이 HTTP 계약은 그대로 유지할 수 있습니다. 예약 패널은 사용자가
+모의 실행임을 체크해야 활성화되며 확인 ID와 `actual_side_effect: false`를 표시합니다.
+
 ### UI 적용 기준
 
 - Wanderlog: 일정과 지도/명소를 한 화면에서 비교하는 정보 구조
@@ -79,15 +157,20 @@ get_tourist_attractions(city, categories, limit)
 ```text
 06_mcp_call.py
 └─ ai_agent.py
-   └─ _date_course_client.py
-      └─ date_course_mcp_server.py
-         └─ date_course_tools.py
+   └─ _multi_mcp_client.py
+      ├─ mcp_servers.json
+      ├─ weather_mcp_server.py
+      ├─ tour_mcp_server.py
+      ├─ route_mcp_server.py
+      └─ booking_mcp_server.py
 ```
 
 - `06_mcp_call.py`: 복합 데이트 요청을 받아 단일 DateCourseAgent를 실행하는 진입점
 - `ai_agent.py`: Tool 선택, 오류 fallback, 최대 2회 국소 재계획, 구조화 출력 담당
-- `_date_course_client.py`: Date Course MCP Server의 stdio 연결과 초기화 담당
-- `date_course_mcp_server.py`: Common/Domain Tool을 노출하는 얇은 MCP Adapter
+- `_multi_mcp_client.py`: JSON 설정 기반 멀티 stdio 연결, 중복 Tool 검출과 호출 라우팅
+- `mcp_servers.json`: 서버 실행 명령과 활성화 상태를 코드 밖에서 관리
+- `*_mcp_server.py`: 도메인별 Tool을 노출하는 얇은 MCP Adapter
+- `booking_tools.py`: 확인·멱등성을 강제하는 외부 쓰기 없는 예약 로직
 - `date_course_tools.py`: Mock Provider와 결정론적 예산·Validator 구현
 
 기존 `01_first_mcp_server.py`부터 `05_mcp_tool_loop.py`까지는 MCP의 발견/호출
@@ -118,7 +201,7 @@ python .\06_mcp_call.py "서울에서 가족 3명이 12시부터 18시까지 걷
 표시됩니다. 비용 합계, 시간/영업시간/이동/도보/Hard Constraint 검사는 LLM이
 추론하지 않고 `date_course_tools.py`가 결정론적으로 수행합니다.
 
-관련 테스트만 실행하려면 과정 루트에서 다음을 사용합니다.
+관련 테스트는 저장소 루트에서 다음을 사용합니다.
 
 ```powershell
 pytest .\tests -q
@@ -202,11 +285,10 @@ Client가 종료되면 서버 프로세스도 함께 종료됩니다.
 
 ## 준비
 
-독립 배포 저장소 루트에서 가상환경을 만들고 의존성을 설치합니다.
+저장소 루트에서 가상환경을 활성화하고 의존성을 설치합니다.
 
 ```powershell
 cd .\courseful-date-agent-demo
-python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements-deploy.txt
 ```
@@ -271,9 +353,9 @@ Client는 서버의 Python 함수를 직접 import하지 않고 `call_tool()`로
 
 ## 다음 단계
 
-`C:\mini_agent_st\mini_agent_03_mcp`에서는 같은 서버를 FastAPI Backend의 MCP
-Server와 분리해 `8010/mcp`에서 실행합니다. Backend는 Streamable HTTP로 연결하고,
-Frontend에서 발견된 Tool·arguments·결과 Trace를 확인합니다.
+현재 공개판은 한 개의 무료 Render 서비스 안에서 Booking MCP를 stdio 자식 프로세스로
+호출합니다. 물리적으로 분리할 때는 각 원격 MCP에 인증·Origin 검증·HTTPS를 추가하고
+Streamable HTTP 전송으로 바꾼 뒤, 같은 `mcp_servers.json` 레지스트리에 등록합니다.
 
 ## 공식 문서
 

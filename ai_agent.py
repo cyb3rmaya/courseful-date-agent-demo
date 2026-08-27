@@ -9,13 +9,13 @@ from typing import Any, Callable
 
 from openai import AsyncOpenAI
 
-from _date_course_client import connect_to_date_course_server
+from _multi_mcp_client import connect_to_mcp_servers
 
 
 MAX_REPLAN_COUNT = 2
 MAX_AGENT_TURNS = 14
 TOOL_TIMEOUT_SECONDS = 10
-REQUIRED_TOOLS = {
+COURSE_REQUIRED_TOOLS = {
     "get_weather",
     "get_tourist_attractions",
     "search_places",
@@ -25,6 +25,12 @@ REQUIRED_TOOLS = {
     "estimate_course_budget",
     "validate_course",
 }
+BOOKING_TOOLS = {
+    "prepare_booking",
+    "confirm_booking",
+    "get_booking_status",
+}
+REQUIRED_TOOLS = COURSE_REQUIRED_TOOLS | BOOKING_TOOLS
 
 DEFAULT_INSTRUCTIONS = """You are DateCourseAgent.
 
@@ -43,6 +49,13 @@ use get_tourist_attractions. Treat its result as the tourism catalog of record:
 do not add attraction facts that are absent from that Tool result. Reuse each
 returned place_id with the detail, route, and validation tools instead of
 matching places by name.
+
+Booking is a separate action boundary. First validate the course, then use
+prepare_booking. Call confirm_booking only when the user's request explicitly
+authorizes the simulated booking action, and pass user_confirmed=true only in
+that case. Never claim that payment, an external reservation provider, or a
+database write occurred. If explicit confirmation is absent, return the draft
+token and ask for confirmation instead of executing the action.
 
 Prefer deterministic tools for budget arithmetic, time overlap, opening-hours,
 route limits, and hard-constraint checks. Before returning a final course:
@@ -151,7 +164,7 @@ class DateCourseAgent:
         api_key: str = "",
         instructions: str = DEFAULT_INSTRUCTIONS,
         client: Any | None = None,
-        connector: Callable[..., Any] = connect_to_date_course_server,
+        connector: Callable[..., Any] = connect_to_mcp_servers,
     ) -> None:
         if client is None and not api_key:
             raise ValueError("OPENAI_API_KEY가 필요합니다.")
@@ -181,7 +194,7 @@ class DateCourseAgent:
             missing = REQUIRED_TOOLS - available
             if missing:
                 raise RuntimeError(
-                    "Date Course MCP Server의 필수 Tool이 없습니다: "
+                    "MCP Server 레지스트리에 필수 Tool이 없습니다: "
                     + ", ".join(sorted(missing))
                 )
             openai_tools = [_to_openai_tool(tool) for tool in discovered]
@@ -508,7 +521,10 @@ TravelAgent = DateCourseAgent
 
 
 __all__ = [
+    "BOOKING_TOOLS",
+    "COURSE_REQUIRED_TOOLS",
     "DateCourseAgent",
     "MAX_REPLAN_COUNT",
+    "REQUIRED_TOOLS",
     "TravelAgent",
 ]

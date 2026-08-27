@@ -10,9 +10,13 @@ const tourCount = document.querySelector("#tour-count");
 const schematicMap = document.querySelector("#schematic-map");
 const warningsBox = document.querySelector("#warnings");
 const traceList = document.querySelector("#trace-list");
+const bookingConsent = document.querySelector("#booking-consent");
+const bookingButton = document.querySelector("#booking-button");
+const bookingStatus = document.querySelector("#booking-status");
 const submitButton = form.querySelector("button[type='submit']");
 const buttonLabel = submitButton.querySelector(".button-label");
 const dateInput = form.elements.date;
+let latestCourse = null;
 
 const categoryLabels = {
   cafe: "카페",
@@ -178,6 +182,15 @@ function renderWarnings(warnings = []) {
 
 function renderTrace(execution = {}) {
   traceList.replaceChildren();
+  if (Array.isArray(execution.servers) && execution.servers.length) {
+    const registryRow = createElement("div", "trace-item");
+    registryRow.append(
+      createElement("strong", "", "MCP 서버 레지스트리"),
+      createElement("code", "", execution.servers.join(" · ")),
+      createElement("span", "trace-state", `${execution.servers.length}개 연결`),
+    );
+    traceList.append(registryRow);
+  }
   const trace = Array.isArray(execution.trace) && execution.trace.length
     ? execution.trace
     : (execution.tools || []).map((tool, index) => ({ turn: index + 1, tool, arguments: {}, is_error: false }));
@@ -193,6 +206,7 @@ function renderTrace(execution = {}) {
 
 function renderResult(data) {
   const passed = data.validation?.status === "pass";
+  const bookingReady = passed && (data.course?.stops || []).length > 0;
   validationBadge.textContent = passed ? "검증 통과" : "조건 확인 필요";
   validationBadge.className = `validation-badge ${passed ? "is-pass" : "is-fail"}`;
   renderSummary(data);
@@ -201,6 +215,14 @@ function renderResult(data) {
   renderMap(data.course?.stops || []);
   renderWarnings(data.warnings || []);
   renderTrace(data.agent_execution || {});
+  latestCourse = bookingReady ? data : null;
+  bookingConsent.disabled = !bookingReady;
+  bookingConsent.checked = false;
+  bookingButton.disabled = true;
+  bookingStatus.textContent = bookingReady
+    ? ""
+    : "검증을 통과한 일정이 있어야 모의 예약을 실행할 수 있습니다.";
+  bookingStatus.className = `booking-status${bookingReady ? "" : " is-error"}`;
   resultShell.hidden = false;
   resultShell.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -215,6 +237,12 @@ function renderError(message) {
   schematicMap.replaceChildren();
   renderWarnings(["입력값을 확인한 뒤 다시 시도해 주세요."]);
   traceList.replaceChildren();
+  latestCourse = null;
+  bookingConsent.disabled = true;
+  bookingConsent.checked = false;
+  bookingButton.disabled = true;
+  bookingStatus.textContent = "코스 검증을 통과한 뒤 모의 예약을 실행할 수 있습니다.";
+  bookingStatus.className = "booking-status is-error";
   resultShell.hidden = false;
   resultShell.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -267,6 +295,49 @@ form.addEventListener("submit", async (event) => {
     window.clearTimeout(timeout);
     submitButton.disabled = false;
     buttonLabel.textContent = "검증된 코스 만들기";
+  }
+});
+
+bookingConsent.addEventListener("change", () => {
+  bookingButton.disabled = !bookingConsent.checked || !latestCourse;
+  if (!bookingConsent.checked) bookingStatus.textContent = "";
+});
+
+bookingButton.addEventListener("click", async () => {
+  if (!latestCourse || !bookingConsent.checked) return;
+  bookingButton.disabled = true;
+  bookingButton.textContent = "모의 예약 확인 중…";
+  bookingStatus.textContent = "Booking MCP 액션 경계를 확인하고 있습니다.";
+  bookingStatus.className = "booking-status";
+
+  const stops = (latestCourse.course?.stops || []).map((stop) => ({
+    place_id: stop.place_id,
+    name: stop.name || stop.place_id,
+    start_time: stop.start_time,
+  }));
+  try {
+    const response = await fetch("/api/v1/bookings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        course_id: latestCourse.course_id,
+        date: latestCourse.intent_summary?.date,
+        party_size: latestCourse.intent_summary?.party_size,
+        stops,
+        user_confirmed: true,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "모의 예약을 실행하지 못했습니다.");
+    bookingStatus.textContent = `모의 예약 확인 완료 · ${data.booking.confirmation_id}`;
+    bookingStatus.className = "booking-status is-success";
+    bookingConsent.disabled = true;
+    bookingButton.textContent = "모의 예약 확인 완료";
+  } catch (error) {
+    bookingStatus.textContent = error.message || "모의 예약 중 오류가 발생했습니다.";
+    bookingStatus.className = "booking-status is-error";
+    bookingButton.disabled = false;
+    bookingButton.textContent = "모의 예약 다시 실행";
   }
 });
 

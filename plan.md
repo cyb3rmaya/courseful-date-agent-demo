@@ -2952,12 +2952,15 @@ UI 역시:
 - 관광 카탈로그는 안정적인 이름·분류·설명만 책임지고 변동 정보는 단정하지 않는다.
 - 공개 웹은 관광 명소와 실제 코스 Stop을 구분해 함께 보여준다.
 
-## 현재 구조에 맞춰 적용하지 않은 부분
+## 당시 보류했던 부분
 
 - 별도 `tour_mcp_server.py`와 `mcp_servers.json`은 기존 멀티 서버 수업 구조에 필요한
   방식이다. 현재 프로젝트는 하나의 Date Course MCP Server 안에서 Tool discovery와
   stdio lifecycle을 관리하므로 서버를 불필요하게 나누지 않는다.
 - Weather/Hotel 예제는 현재 도메인 계약과 직접 관련이 없어 가져오지 않는다.
+
+이 판단은 단일 서버 단계에서의 결정이며, 이후 사용자가 멀티 MCP와 Booking Server를
+명시적으로 과제로 지정했으므로 아래 65절로 대체한다.
 
 ## UI 재검토 원칙
 
@@ -2965,3 +2968,82 @@ UI 역시:
 - 생성형 서비스에서 흔한 보라색 그라데이션·유리 효과·챗봇 표현을 사용하지 않는다.
 - 한국어 시스템 글꼴, 굵은 제목과 본문, 명확한 경계선, 고대비 상태를 사용한다.
 - 일정·명소·검증 상세를 단계적으로 공개하고 모바일에서 한 열로 자연스럽게 전환한다.
+
+---
+
+# 65. 멀티 MCP + Booking Server 과제 적용
+
+## 목표
+
+- 기존 조회·계산 기능을 세 개의 도메인 MCP Server로 분리한다.
+- 실제 쓰기 경계를 보여주는 네 번째 Booking MCP Server를 추가한다.
+- Server 목록과 실행 명령을 `mcp_servers.json`에서 관리한다.
+- Client는 등록된 모든 서버를 동시에 유지하고 Tool discovery 결과로 호출을 라우팅한다.
+- 공개 웹에서 프론트엔드 → Backend → 모의 Booking 액션 흐름을 직접 확인한다.
+
+## 최종 서버 구성
+
+```text
+mcp_servers.json
+├─ weather → weather_mcp_server.py
+├─ tour    → tour_mcp_server.py
+├─ route   → route_mcp_server.py
+└─ booking → booking_mcp_server.py
+```
+
+기존 `date_course_mcp_server.py`는 01~06 학습 흐름과 단일 서버 비교를 위해 보존한다.
+업무 로직은 서버 파일에 복사하지 않고 `date_course_tools.py`와 `booking_tools.py`에서
+공유한다. 따라서 Server Adapter를 늘려도 계산·검증 규칙의 구현은 한 곳에 남는다.
+
+## Booking Action 계약
+
+```text
+validated course
+→ prepare_booking(course_id, date, party_size, stops)
+→ awaiting_confirmation + stable booking_token
+→ 명시적 사용자 확인
+→ confirm_booking(booking_token, user_confirmed=true)
+→ confirmed + simulated confirmation_id
+```
+
+- 결제, 외부 예약 Provider, DB INSERT, 개인정보 저장을 수행하지 않는다.
+- `user_confirmed=false`이면 `CONFIRMATION_REQUIRED`로 거절한다.
+- 같은 요청과 같은 token의 재호출은 같은 확인 ID를 반환한다.
+- stdio stdout에는 MCP 메시지만 쓰고 동작 로그는 UTF-8 stderr로 출력한다.
+
+## 아키텍처
+
+```mermaid
+flowchart TB
+    Front[Browser / future React·Next.js] --> Backend[FastAPI]
+    Backend --> CourseAPI[Course API]
+    Backend --> BookingAPI[Simulated Booking API]
+    User[CLI User] --> Agent[DateCourseAgent]
+    Agent --> Multi[Multi MCP Client]
+    Config[mcp_servers.json] --> Multi
+    Multi --> Weather[Weather MCP]
+    Multi --> Tour[Tour MCP]
+    Multi --> Route[Route MCP]
+    Multi --> Booking[Booking MCP]
+    BookingAPI --> Booking
+```
+
+## Transport 결정
+
+- 현재 구현은 네 서버 모두 로컬 `stdio`다.
+- 원격 서버는 최신 표준의 Streamable HTTP endpoint로 전환한다.
+- 과거의 별도 HTTP+SSE 전송은 호환 대상일 수 있으나 신규 기본안으로 사용하지 않는다.
+- 원격 Booking에는 TLS, 인증, 사용자·Tool 권한, Origin 검증, rate limit, 멱등성 DB,
+  감사 로그를 갖추기 전까지 실제 예약 권한을 부여하지 않는다.
+
+## 완료 기준
+
+- [x] JSON에 서버 4개 등록
+- [x] 네 stdio 프로세스 동시 초기화
+- [x] Tool 11개 자동 발견 및 중복 이름 검출
+- [x] Tool 이름 기반 서버 라우팅
+- [x] Booking 초안·확정·상태 조회 Tool
+- [x] 명시적 확인 없는 예약 거절
+- [x] 웹 프론트엔드 모의 예약 연동
+- [x] UTF-8 콘솔 출력
+- [x] 단위·stdio·멀티 MCP·웹 API 테스트

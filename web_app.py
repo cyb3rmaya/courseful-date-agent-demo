@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import date as date_type
 from pathlib import Path
 from typing import Literal
@@ -16,6 +18,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
+from _multi_mcp_client import connect_to_mcp_servers
+from booking_tools import BookingStop
 from date_course_tools import (
     CourseStopInput,
     PlaceDetailsResult,
@@ -90,6 +94,20 @@ class CourseRequest(BaseModel):
         return value
 
 
+class BookingRequest(BaseModel):
+    course_id: str = Field(min_length=1, max_length=120)
+    date: str
+    party_size: int = Field(ge=1, le=10)
+    stops: list[BookingStop] = Field(min_length=1, max_length=6)
+    user_confirmed: bool = False
+
+    @field_validator("date")
+    @classmethod
+    def valid_booking_date(cls, value: str) -> str:
+        date_type.fromisoformat(value)
+        return value
+
+
 def _minutes(value: str) -> int:
     parts = value.split(":")
     if len(parts) != 2 or not all(part.isdigit() for part in parts):
@@ -102,6 +120,28 @@ def _minutes(value: str) -> int:
 
 def _clock(value: int) -> str:
     return f"{value // 60:02d}:{value % 60:02d}"
+
+
+def _course_id(payload: CourseRequest, stops: list[CourseStopInput]) -> str:
+    canonical = json.dumps(
+        {
+            "location": payload.location,
+            "date": payload.date,
+            "party_size": payload.party_size,
+            "stops": [
+                {
+                    "place_id": stop.place_id,
+                    "start_time": stop.start_time,
+                    "end_time": stop.end_time,
+                }
+                for stop in stops
+            ],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return "course-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
 def _opening_range(details: PlaceDetailsResult) -> tuple[int, int] | None:
@@ -345,6 +385,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
         warnings.append("현재 조건에서 구성 가능한 장소가 부족합니다. 시간 또는 예산을 넓혀 주세요.")
 
     return {
+        "course_id": _course_id(payload, stops),
         "intent_summary": {
             "request": payload.request,
             "location": payload.location,
@@ -380,6 +421,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
         },
         "agent_execution": {
             "mode": "deterministic_mock",
+            "servers": ["weather", "tour", "route", "booking"],
             "tools": [
                 "get_weather",
                 "get_tourist_attractions",
@@ -388,6 +430,11 @@ def build_mock_course(payload: CourseRequest) -> dict:
                 "search_date_context",
                 "calculate_route",
                 "validate_course",
+            ],
+            "available_action_tools": [
+                "prepare_booking",
+                "confirm_booking",
+                "get_booking_status",
             ],
             "validation_attempts": validation_attempts,
             "replan_count": max(0, validation_attempts - 1),
@@ -398,8 +445,8 @@ def build_mock_course(payload: CourseRequest) -> dict:
 
 app = FastAPI(
     title="Courseful City Course Planner",
-    description="관광 명소와 일정 조건을 결정론적으로 검증하는 무료 공개 데모",
-    version="1.1.0",
+    description="멀티 MCP 조회·검증·모의 예약 흐름을 제공하는 무료 공개 데모",
+    version="1.2.0",
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -439,6 +486,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "mode": "deterministic_mock",
         "storage": "none",
+        "booking": "simulated_memory_only",
     }
 
 
@@ -450,3 +498,42 @@ def create_course(payload: CourseRequest) -> dict:
         return build_mock_course(payload)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/bookings")
+async def create_simulated_booking(payload: BookingRequest) -> dict:
+    """명시적 확인이 있는 코스를 모의 예약하며 외부 쓰기는 수행하지 않습니다."""
+    try:
+        async with connect_to_mcp_servers(server_names={"booking"}) as client:
+            draft_result = await client.call_tool(
+                "prepare_booking",
+                {
+                    "course_id": payload.course_id,
+                    "date": payload.date,
+                    "party_size": payload.party_size,
+                    "stops": [stop.model_dump() for stop in payload.stops],
+                },
+            )
+            if draft_result.isError or not draft_result.structuredContent:
+                raise ValueError("Booking MCP가 예약 초안을 만들지 못했습니다.")
+            draft = draft_result.structuredContent
+            action_result = await client.call_tool(
+                "confirm_booking",
+                {
+                    "booking_token": draft["booking_token"],
+                    "user_confirmed": payload.user_confirmed,
+                },
+            )
+            if not action_result.structuredContent:
+                raise ValueError("Booking MCP가 예약 결과를 반환하지 않았습니다.")
+            action = action_result.structuredContent
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if action.get("error_code") == "CONFIRMATION_REQUIRED":
+        raise HTTPException(status_code=409, detail=action["message"])
+    return {
+        "draft": draft,
+        "booking": action,
+        "mcp_server": "booking",
+        "actual_side_effect": False,
+    }

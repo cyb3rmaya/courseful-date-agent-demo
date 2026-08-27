@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "servers": {
+    "weather": {
+      "transport": "stdio",
+      "command": "{python}",
+      "args": ["weather_mcp_server.py"],
+      "enabled": true
+    },
+    "tour": {
+      "transport": "stdio",
+      "command": "{python}",
+      "args": ["tour_mcp_server.py"],
+      "enabled": true
+    },
+    "route": {
+      "transport": "stdio",
+      "command": "{python}",
+      "args": ["route_mcp_server.py"],
+      "enabled": true
+    },
+    "booking": {
+      "transport": "stdio",
+      "command": "{python}",
+      "args": ["booking_mcp_server.py"],
+      "enabled": true
+    }
+  }
+}

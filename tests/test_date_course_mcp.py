@@ -11,14 +11,14 @@ MODULE_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MODULE_DIR))
 
 from _date_course_client import connect_to_date_course_server  # noqa: E402
-from ai_agent import REQUIRED_TOOLS  # noqa: E402
+from ai_agent import COURSE_REQUIRED_TOOLS  # noqa: E402
 
 
 def test_date_course_server_exposes_plan_tools() -> None:
     async def scenario() -> None:
         async with connect_to_date_course_server() as session:
             tools = (await session.list_tools()).tools
-            assert {tool.name for tool in tools} == REQUIRED_TOOLS
+            assert {tool.name for tool in tools} == COURSE_REQUIRED_TOOLS
 
             result = await session.call_tool(
                 "get_weather",

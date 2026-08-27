@@ -42,7 +42,7 @@ def test_public_ui_and_health() -> None:
     assert "Courseful" in home.text
     assert "가볼 곳부터 이동시간까지" in home.text
     assert "Mock Agent" not in home.text
-    assert "�" not in home.text
+    assert "\ufffd" not in home.text
     assert "default-src 'self'" in home.headers["content-security-policy"]
 
     assert client.head("/").status_code == 200
@@ -56,6 +56,7 @@ def test_public_ui_and_health() -> None:
         "status": "ok",
         "mode": "deterministic_mock",
         "storage": "none",
+        "booking": "simulated_memory_only",
     }
 
 
@@ -65,6 +66,7 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     result = response.json()
 
     assert result["validation"]["status"] == "pass"
+    assert result["course_id"].startswith("course-")
     assert len(result["course"]["stops"]) >= 2
     assert all(stop["indoor"] is True for stop in result["course"]["stops"])
     assert result["known_total_cost"] <= 100_000
@@ -72,6 +74,12 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert result["tourism"]["source"] == "local-tour-catalog"
     assert result["tourism"]["count"] >= 1
     assert "get_tourist_attractions" in result["agent_execution"]["tools"]
+    assert result["agent_execution"]["servers"] == [
+        "weather",
+        "tour",
+        "route",
+        "booking",
+    ]
     assert any("Mock" in warning for warning in result["warnings"])
 
 
@@ -82,3 +90,33 @@ def test_invalid_time_range_returns_422() -> None:
     )
     assert response.status_code == 422
     assert "종료 시간" in response.json()["detail"]
+
+
+def test_simulated_booking_requires_confirmation_and_is_idempotent() -> None:
+    course = client.post("/api/v1/course-plans", json=_payload()).json()
+    booking_payload = {
+        "course_id": course["course_id"],
+        "date": course["intent_summary"]["date"],
+        "party_size": course["intent_summary"]["party_size"],
+        "stops": [
+            {
+                "place_id": stop["place_id"],
+                "name": stop["name"],
+                "start_time": stop["start_time"],
+            }
+            for stop in course["course"]["stops"]
+        ],
+        "user_confirmed": False,
+    }
+    rejected = client.post("/api/v1/bookings", json=booking_payload)
+    assert rejected.status_code == 409
+    assert "명시적 확인" in rejected.json()["detail"]
+
+    booking_payload["user_confirmed"] = True
+    first = client.post("/api/v1/bookings", json=booking_payload)
+    second = client.post("/api/v1/bookings", json=booking_payload)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["booking"]["status"] == "confirmed"
+    assert first.json()["booking"]["confirmation_id"] == second.json()["booking"]["confirmation_id"]
+    assert first.json()["mcp_server"] == "booking"
+    assert first.json()["actual_side_effect"] is False
