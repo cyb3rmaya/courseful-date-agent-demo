@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
+from contextlib import asynccontextmanager
 from datetime import date as date_type
 from pathlib import Path
 from typing import Literal
@@ -452,74 +454,71 @@ def _mcp_payload(result, tool_name: str) -> dict:
     return result.structuredContent
 
 
-async def verify_course_with_mcp(payload: CourseRequest, course: dict) -> dict:
+async def verify_course_with_mcp(payload: CourseRequest, course: dict, client) -> dict:
     """공개 코스 결과의 핵심 조회·경로·검증을 실제 stdio MCP 호출로 재확인합니다."""
     trace: list[dict] = []
     verification_started = time.perf_counter()
-    async with connect_to_mcp_servers(
-        server_names={"weather", "tour", "route"}
-    ) as client:
-        async def call(tool: str, arguments: dict) -> dict:
-            started = time.perf_counter()
-            result = await client.call_tool(tool, arguments)
-            content = _mcp_payload(result, tool)
-            trace.append(
-                {
-                    "turn": len(trace) + 1,
-                    "server": client.tool_to_server[tool],
-                    "tool": tool,
-                    "transport": "stdio",
-                    "arguments": arguments,
-                    "source": content.get("source", "mcp-tool-result"),
-                    "duration_ms": round((time.perf_counter() - started) * 1000),
-                    "is_error": False,
-                }
-            )
-            return content
-
-        weather = await call(
-            "get_weather",
-            {"location": payload.location, "date": payload.date},
-        )
-        tourism = await call(
-            "get_tourist_attractions",
+    async def call(tool: str, arguments: dict) -> dict:
+        started = time.perf_counter()
+        result = await client.call_tool(tool, arguments)
+        content = _mcp_payload(result, tool)
+        trace.append(
             {
-                "city": payload.location,
-                "categories": payload.tourism_categories or None,
-                "limit": 8,
+                "turn": len(trace) + 1,
+                "server": client.tool_to_server[tool],
+                "tool": tool,
+                "transport": "stdio",
+                "arguments": arguments,
+                "source": content.get("source", "mcp-tool-result"),
+                "duration_ms": round((time.perf_counter() - started) * 1000),
+                "is_error": False,
+            }
+        )
+        return content
+
+    weather = await call(
+        "get_weather",
+        {"location": payload.location, "date": payload.date},
+    )
+    tourism = await call(
+        "get_tourist_attractions",
+        {
+            "city": payload.location,
+            "categories": payload.tourism_categories or None,
+            "limit": 8,
+        },
+    )
+    stops = course["course"]["stops"]
+    for index in range(1, len(stops)):
+        route = await call(
+            "calculate_route",
+            {
+                "origin_place_id": stops[index - 1]["place_id"],
+                "destination_place_id": stops[index]["place_id"],
+                "transportation": payload.transportation,
             },
         )
-        stops = course["course"]["stops"]
-        for index in range(1, len(stops)):
-            route = await call(
-                "calculate_route",
-                {
-                    "origin_place_id": stops[index - 1]["place_id"],
-                    "destination_place_id": stops[index]["place_id"],
-                    "transportation": payload.transportation,
-                },
-            )
-            stops[index]["route_from_previous"] = route
+        stops[index]["route_from_previous"] = route
 
-        intent = UserIntentInput(
-            companion_type=payload.companion_type,
-            location=payload.location,
-            date=payload.date,
-            start_time=payload.start_time,
-            end_time=payload.end_time,
-            party_size=payload.party_size,
-            budget=payload.budget,
-            transportation=payload.transportation,
-            hard_constraints=payload.hard_constraints,
-            soft_preferences=payload.soft_preferences,
-            assumptions=["외부 Provider 대신 교육용 Mock 데이터를 사용합니다."],
-            weather_condition=weather.get("condition"),
-            max_walking_distance_m=payload.max_walking_distance_m,
-        )
-        validation = await call(
-            "validate_course",
-            {"intent": intent.model_dump(), "stops": stops},
-        )
+    intent = UserIntentInput(
+        companion_type=payload.companion_type,
+        location=payload.location,
+        date=payload.date,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        party_size=payload.party_size,
+        budget=payload.budget,
+        transportation=payload.transportation,
+        hard_constraints=payload.hard_constraints,
+        soft_preferences=payload.soft_preferences,
+        assumptions=["외부 Provider 대신 교육용 Mock 데이터를 사용합니다."],
+        weather_condition=weather.get("condition"),
+        max_walking_distance_m=payload.max_walking_distance_m,
+    )
+    validation = await call(
+        "validate_course",
+        {"intent": intent.model_dump(), "stops": stops},
+    )
 
     course["intent_summary"]["weather"] = weather
     course["tourism"] = tourism
@@ -540,6 +539,7 @@ async def verify_course_with_mcp(payload: CourseRequest, course: dict) -> dict:
             "execution_path": "stdio_mcp_verified",
             "mcp_servers_called": ["weather", "tour", "route"],
             "transport": "stdio",
+            "server_lifecycle": "application_lifespan",
             "trace": trace,
             "mcp_total_duration_ms": round(
                 (time.perf_counter() - verification_started) * 1000
@@ -549,10 +549,20 @@ async def verify_course_with_mcp(payload: CourseRequest, course: dict) -> dict:
     return course
 
 
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    """네 MCP 프로세스를 앱 시작 때 한 번 열고 모든 HTTP 요청에서 재사용합니다."""
+    async with connect_to_mcp_servers() as client:
+        app_instance.state.mcp_client = client
+        app_instance.state.mcp_lock = asyncio.Lock()
+        yield
+
+
 app = FastAPI(
     title="Courseful City Course Planner",
     description="멀티 MCP 조회·검증·모의 예약 흐름을 제공하는 무료 공개 데모",
     version="1.2.0",
+    lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -593,6 +603,7 @@ def health() -> dict[str, str]:
         "mode": "deterministic_mock",
         "storage": "none",
         "booking": "simulated_memory_only",
+        "mcp": "4_stdio_servers_ready",
     }
 
 
@@ -602,7 +613,10 @@ async def create_course(payload: CourseRequest) -> dict:
         raise HTTPException(status_code=422, detail="종료 시간은 시작 시간보다 늦어야 합니다.")
     try:
         course = build_mock_course(payload)
-        return await verify_course_with_mcp(payload, course)
+        async with app.state.mcp_lock:
+            return await verify_course_with_mcp(
+                payload, course, app.state.mcp_client
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except (OSError, RuntimeError) as exc:
@@ -619,7 +633,8 @@ async def create_course(payload: CourseRequest) -> dict:
 async def create_simulated_booking(payload: BookingRequest) -> dict:
     """명시적 확인이 있는 코스를 모의 예약하며 외부 쓰기는 수행하지 않습니다."""
     try:
-        async with connect_to_mcp_servers(server_names={"booking"}) as client:
+        async with app.state.mcp_lock:
+            client = app.state.mcp_client
             draft_result = await client.call_tool(
                 "prepare_booking",
                 {

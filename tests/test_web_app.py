@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -14,7 +15,10 @@ sys.path.insert(0, str(MODULE_DIR))
 from web_app import app  # noqa: E402
 
 
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 def _payload(**overrides):
@@ -36,7 +40,7 @@ def _payload(**overrides):
     return payload
 
 
-def test_public_ui_and_health() -> None:
+def test_public_ui_and_health(client: TestClient) -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "Courseful" in home.text
@@ -59,10 +63,11 @@ def test_public_ui_and_health() -> None:
         "mode": "deterministic_mock",
         "storage": "none",
         "booking": "simulated_memory_only",
+        "mcp": "4_stdio_servers_ready",
     }
 
 
-def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
+def test_course_endpoint_obeys_rainy_indoor_constraint(client: TestClient) -> None:
     response = client.post("/api/v1/course-plans", json=_payload())
     assert response.status_code == 200
     result = response.json()
@@ -89,6 +94,7 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert result["agent_execution"]["trace"][-1]["tool"] == "validate_course"
     assert all(item["transport"] == "stdio" for item in result["agent_execution"]["trace"])
     assert result["agent_execution"]["mcp_total_duration_ms"] > 0
+    assert result["agent_execution"]["server_lifecycle"] == "application_lifespan"
     assert result["agent_execution"]["registered_mcp_servers"] == [
         "weather",
         "tour",
@@ -98,7 +104,7 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert any("Mock" in warning for warning in result["warnings"])
 
 
-def test_invalid_time_range_returns_422() -> None:
+def test_invalid_time_range_returns_422(client: TestClient) -> None:
     response = client.post(
         "/api/v1/course-plans",
         json=_payload(start_time="21:00", end_time="14:00"),
@@ -107,7 +113,9 @@ def test_invalid_time_range_returns_422() -> None:
     assert "종료 시간" in response.json()["detail"]
 
 
-def test_simulated_booking_requires_confirmation_and_is_idempotent() -> None:
+def test_simulated_booking_requires_confirmation_and_is_idempotent(
+    client: TestClient,
+) -> None:
     course = client.post("/api/v1/course-plans", json=_payload()).json()
     booking_payload = {
         "course_id": course["course_id"],

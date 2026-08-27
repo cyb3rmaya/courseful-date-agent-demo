@@ -314,7 +314,7 @@ function renderMcpPipeline(execution = {}) {
   });
   const verified = execution.execution_path === "stdio_mcp_verified";
   mcpProofDescription.textContent = verified
-    ? `Weather·Tour·Route 서버를 로컬 stdio 자식 프로세스로 실행해 이 결과를 재검증했습니다. 프로세스 시작 포함 ${execution.mcp_total_duration_ms || 0}ms.`
+    ? `앱 시작 때 연결한 Weather·Tour·Route stdio 서버로 이 결과를 재검증했습니다. 이번 Tool 실행 ${execution.mcp_total_duration_ms || 0}ms.`
     : "MCP 프로세스 확인에 실패해 같은 결정론적 함수를 서버 내부에서 실행했습니다.";
   mcpPipeline.classList.toggle("is-fallback", !verified);
 }

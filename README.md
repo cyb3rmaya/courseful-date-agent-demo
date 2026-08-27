@@ -148,6 +148,8 @@ Streamable HTTP를 표준 전송으로 정의하며, Streamable HTTP가 2024-11-
 Booking API는 JSON 레지스트리에서 `booking` 서버만 선택해 실제 stdio MCP Tool을
 호출합니다. 코스 생성 API도 결정론적으로 후보를 만든 뒤 Weather·Tour·Route 서버를 실제
 stdio 자식 프로세스로 열어 날씨, 관광 후보, 구간 경로, 최종 검증을 다시 호출합니다.
+네 프로세스는 FastAPI lifespan에서 한 번 초기화하고 요청마다 재사용하므로 매 요청의
+프로세스 시작 지연을 반복하지 않습니다.
 응답의 `agent_execution.trace`에는 서버명, Tool, arguments, 전송 방식, 실행 시간이 남고
 화면의 ‘실행 증거’ 패널에서 이를 요약합니다. MCP 프로세스 장애 때만 같은 도메인 함수의
 `in_process_fallback`으로 내려가며 경고를 표시합니다.

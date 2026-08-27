@@ -3068,6 +3068,7 @@ flowchart TB
 - 제출 직전 지역·동행·시간·예산·이동·우선순위를 한 번에 확인하는 선택 요약을 제공한다.
 - 코스 생성 API가 Weather·Tour·Route MCP를 stdio 프로세스로 실행한다.
 - 결과에 서버·Tool·transport·arguments·duration을 포함한 실행 Trace를 반환한다.
+- 네 MCP는 FastAPI lifespan에서 한 번 초기화하고 요청 사이에 재사용해 프로세스 기동 지연을 제거한다.
 - 일반 사용자는 네 서버의 완료·대기·오류 상태를 ‘실행 증거’ 패널에서 보고,
   상세 arguments는 점진적으로 펼쳐 본다.
 - Booking은 코스 생성과 분리된 상태로 유지하고 명시적 확인 뒤에만 네 번째 MCP를 실행한다.
