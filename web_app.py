@@ -78,9 +78,13 @@ async def security_headers(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; img-src 'self' data: https://*.kakaocdn.net https://*.daumcdn.net; "
-        "style-src 'self' 'unsafe-inline'; script-src 'self' https://dapi.kakao.com; "
-        "connect-src 'self' https://*.kakao.com https://*.daum.net; frame-ancestors 'none'"
+        "default-src 'self'; img-src 'self' data: "
+        "https://*.kakaocdn.net https://*.daumcdn.net http://*.kakaocdn.net http://*.daumcdn.net; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' https://dapi.kakao.com http://dapi.kakao.com "
+        "https://t1.daumcdn.net http://t1.daumcdn.net; "
+        "connect-src 'self' https://*.kakao.com https://*.daum.net "
+        "http://*.kakao.com http://*.daum.net; frame-ancestors 'none'"
     )
     return response
 

@@ -4,6 +4,7 @@ const resultSection = document.querySelector("#result");
 const submitButton = form.querySelector("button[type='submit']");
 let publicConfig = { kakao_map_enabled: false, kakao_javascript_key: "" };
 let kakaoReady = null;
+const publicConfigReady = loadPublicConfig();
 
 const won = new Intl.NumberFormat("ko-KR");
 const qs = (selector) => document.querySelector(selector);
@@ -35,8 +36,22 @@ function loadKakaoSdk() {
   kakaoReady = new Promise((resolve) => {
     const script = document.createElement("script");
     script.src = `https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=${encodeURIComponent(publicConfig.kakao_javascript_key)}`;
-    script.onload = () => window.kakao.maps.load(() => resolve(true));
-    script.onerror = () => resolve(false);
+    const timeout = window.setTimeout(() => resolve(false), 12_000);
+    script.onload = () => {
+      if (typeof window.kakao?.maps?.load !== "function") {
+        window.clearTimeout(timeout);
+        resolve(false);
+        return;
+      }
+      window.kakao.maps.load(() => {
+        window.clearTimeout(timeout);
+        resolve(typeof window.kakao?.maps?.Map === "function");
+      });
+    };
+    script.onerror = () => {
+      window.clearTimeout(timeout);
+      resolve(false);
+    };
     document.head.appendChild(script);
   });
   return kakaoReady;
@@ -93,23 +108,39 @@ async function renderMap(spots) {
   if (!loaded || !spots.length) {
     mapNode.hidden = true;
     setup.hidden = false;
+    setup.querySelector("span").textContent = loaded ? "NO MAP POINTS" : "MAP LOAD FAILED";
+    setup.querySelector("strong").innerHTML = loaded
+      ? "표시할 명소 좌표가 없습니다."
+      : "Kakao 지도를 불러오지 못했습니다.";
+    setup.querySelector("p").textContent = loaded
+      ? "다른 지역을 선택해 다시 조회해 주세요."
+      : "키·허용 도메인·카카오맵 사용 설정을 확인한 뒤 다시 시도해 주세요. 명소의 지도 링크는 계속 사용할 수 있습니다.";
     return;
   }
-  mapNode.hidden = false;
-  setup.hidden = true;
-  const bounds = new kakao.maps.LatLngBounds();
-  const map = new kakao.maps.Map(mapNode, {
-    center: new kakao.maps.LatLng(spots[0].lat, spots[0].lng),
-    level: 7,
-  });
-  spots.forEach((spot) => {
-    const position = new kakao.maps.LatLng(spot.lat, spot.lng);
-    bounds.extend(position);
-    const marker = new kakao.maps.Marker({ map, position, title: spot.name });
-    const info = new kakao.maps.InfoWindow({ content: `<div class="map-label">${spot.name}</div>` });
-    kakao.maps.event.addListener(marker, "click", () => info.open(map, marker));
-  });
-  map.setBounds(bounds, 50, 50, 50, 50);
+  try {
+    mapNode.hidden = false;
+    setup.hidden = true;
+    const bounds = new kakao.maps.LatLngBounds();
+    const map = new kakao.maps.Map(mapNode, {
+      center: new kakao.maps.LatLng(spots[0].lat, spots[0].lng),
+      level: 7,
+    });
+    spots.forEach((spot) => {
+      const position = new kakao.maps.LatLng(spot.lat, spot.lng);
+      bounds.extend(position);
+      const marker = new kakao.maps.Marker({ map, position, title: spot.name });
+      const info = new kakao.maps.InfoWindow({ content: `<div class="map-label">${spot.name}</div>` });
+      kakao.maps.event.addListener(marker, "click", () => info.open(map, marker));
+    });
+    map.setBounds(bounds, 50, 50, 50, 50);
+  } catch (error) {
+    console.warn("Kakao map render failed", error);
+    mapNode.hidden = true;
+    setup.hidden = false;
+    setup.querySelector("span").textContent = "MAP RENDER FAILED";
+    setup.querySelector("strong").innerHTML = "Kakao 지도 렌더링에 실패했습니다.";
+    setup.querySelector("p").textContent = "명소의 개별 지도 링크는 계속 사용할 수 있습니다. 잠시 후 다시 시도해 주세요.";
+  }
 }
 
 function renderTrace(execution) {
@@ -128,7 +159,7 @@ function renderWarnings(warnings) {
   node.hidden = warnings.length === 0;
 }
 
-function renderResult(data) {
+async function renderResult(data) {
   text("#result-location", data.intent_summary.location);
   qs("#result-meta").innerHTML = `<strong>${data.intent_summary.date}</strong><span>${data.mcp_execution.total_duration_ms} ms · 서버 2대 병렬 호출</span>`;
   renderWeather(data);
@@ -136,8 +167,8 @@ function renderResult(data) {
   renderSpots(data);
   renderTrace(data.mcp_execution);
   renderWarnings(data.warnings);
-  renderMap(data.spots.spots);
   resultSection.hidden = false;
+  await renderMap(data.spots.spots);
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -153,6 +184,7 @@ form.addEventListener("submit", async (event) => {
     max_hotel_price: Number(values.get("max_hotel_price")),
   };
   try {
+    await publicConfigReady;
     const response = await fetch("/api/v1/trip-briefs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -160,7 +192,7 @@ form.addEventListener("submit", async (event) => {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.detail || "조회에 실패했습니다.");
-    renderResult(body);
+    await renderResult(body);
     statusLine.textContent = `완료 · ${body.mcp_execution.trace.length}개 Tool을 실제 호출했습니다.`;
   } catch (error) {
     statusLine.textContent = `오류 · ${error.message}`;
@@ -169,5 +201,3 @@ form.addEventListener("submit", async (event) => {
     submitButton.querySelector("span").textContent = "두 서버로 찾기";
   }
 });
-
-loadPublicConfig();
