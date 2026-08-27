@@ -1,4 +1,4 @@
-"""PLAN.md 기반 MCP DateCourseAgent CLI 진입점입니다."""
+"""두 Streamable HTTP MCP Server를 사용하는 AI Agent CLI 진입점입니다."""
 
 from __future__ import annotations
 
@@ -16,13 +16,13 @@ from ai_agent import DateCourseAgent
 
 COURSE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUESTION = (
-    "부산에서 커플 2명이 14:00부터 21:00까지 대중교통으로 이동할 거예요. "
-    "총 예산은 10만원이고 카페와 야경을 원하지만, 비가 오면 실내 코스로 바꿔 주세요."
+    "부산의 현재 날씨와 내일 예보를 확인하고, "
+    "1박 15만원 이하 호텔과 대표 관광 명소를 찾아 주세요."
 )
 
 
 def _arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MCP 데이트 코스 Agent 실행")
+    parser = argparse.ArgumentParser(description="두 MCP 여행 브리프 Agent 실행")
     parser.add_argument("question", nargs="?", default=DEFAULT_QUESTION)
     return parser.parse_args()
 

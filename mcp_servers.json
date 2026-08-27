@@ -1,28 +1,20 @@
 {
-  "version": 1,
+  "version": 2,
   "servers": {
     "weather": {
-      "transport": "stdio",
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8101/mcp",
+      "url_env": "WEATHER_MCP_URL",
       "command": "{python}",
-      "args": ["weather_mcp_server.py"],
+      "args": ["weather_mcp_server.py", "--host", "127.0.0.1", "--port", "8101"],
       "enabled": true
     },
     "tour": {
-      "transport": "stdio",
+      "transport": "streamable_http",
+      "url": "http://127.0.0.1:8102/mcp",
+      "url_env": "TOUR_MCP_URL",
       "command": "{python}",
-      "args": ["tour_mcp_server.py"],
-      "enabled": true
-    },
-    "route": {
-      "transport": "stdio",
-      "command": "{python}",
-      "args": ["route_mcp_server.py"],
-      "enabled": true
-    },
-    "booking": {
-      "transport": "stdio",
-      "command": "{python}",
-      "args": ["booking_mcp_server.py"],
+      "args": ["tour_mcp_server.py", "--host", "127.0.0.1", "--port", "8102"],
       "enabled": true
     }
   }

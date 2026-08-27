@@ -1,8 +1,9 @@
-"""무료 공개 FastAPI 앱의 핵심 동작을 검증합니다."""
+"""두 MCP 공개 웹 앱의 핵심 계약 테스트."""
 
 from __future__ import annotations
 
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -21,125 +22,59 @@ def client():
         yield test_client
 
 
-def _payload(**overrides):
-    payload = {
-        "request": "비가 오면 실내에서 대화하기 좋은 부산 커플 코스",
+def payload(**overrides):
+    value = {
         "location": "부산",
-        "companion_type": "couple",
-        "date": "2026-08-26",
-        "start_time": "14:00",
-        "end_time": "21:00",
-        "party_size": 2,
-        "budget": 100_000,
-        "transportation": "public_transport",
-        "hard_constraints": ["비 오면 실내"],
-        "soft_preferences": ["카페", "대화"],
-        "tourism_categories": ["문화관광", "도시명소"],
+        "date": (date.today() + timedelta(days=1)).isoformat(),
+        "max_hotel_price": 150_000,
     }
-    payload.update(overrides)
-    return payload
+    value.update(overrides)
+    return value
 
 
-def test_public_ui_and_health(client: TestClient) -> None:
+def test_public_ui_is_utf8_and_has_three_inputs(client: TestClient) -> None:
     home = client.get("/")
     assert home.status_code == 200
-    assert "Courseful" in home.text
-    assert "검색 탭은 줄이고" in home.text
-    assert "어떤 하루가 필요한가요?" in home.text
-    assert "이 결과를 만든 MCP 호출" in home.text
-    assert "Mock Agent" not in home.text
+    assert "날씨를 확인하고" in home.text
+    assert "세 가지만 정하세요" in home.text
+    assert "Weather MCP" in home.text and "Tour MCP" in home.text
+    assert "Booking MCP" not in home.text and "Route MCP" not in home.text
+    assert home.text.count("<select") == 1
+    assert home.text.count("<input") == 2
     assert "\ufffd" not in home.text
-    assert "default-src 'self'" in home.headers["content-security-policy"]
-
-    assert client.head("/").status_code == 200
-    favicon = client.get("/favicon.ico")
-    assert favicon.status_code == 200
-    assert favicon.headers["content-type"].startswith("image/svg+xml")
-
-    health = client.get("/health")
-    assert health.status_code == 200
-    assert health.json() == {
-        "status": "ok",
-        "mode": "deterministic_mock",
-        "storage": "none",
-        "booking": "simulated_memory_only",
-        "mcp": "4_stdio_servers_ready",
-    }
+    assert "dapi.kakao.com" in home.headers["content-security-policy"]
 
 
-def test_course_endpoint_obeys_rainy_indoor_constraint(client: TestClient) -> None:
-    response = client.post("/api/v1/course-plans", json=_payload())
+def test_health_reports_exactly_two_http_servers(client: TestClient) -> None:
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["mcp"] == "2_streamable_http_servers_ready"
+    assert body["servers"] == ["weather", "tour"]
+    assert body["tools"] == [
+        "get_current_weather",
+        "get_weather_forecast",
+        "search_hotels",
+        "search_spots",
+    ]
+
+
+def test_trip_brief_calls_both_servers_and_filters_hotels(client: TestClient) -> None:
+    response = client.post("/api/v1/trip-briefs", json=payload())
     assert response.status_code == 200
-    result = response.json()
-
-    assert result["validation"]["status"] == "pass"
-    assert result["course_id"].startswith("course-")
-    assert len(result["course"]["stops"]) >= 2
-    assert all(stop["indoor"] is True for stop in result["course"]["stops"])
-    assert result["known_total_cost"] <= 100_000
-    assert result["agent_execution"]["mode"] == "deterministic_mock"
-    assert result["tourism"]["source"] == "local-tour-catalog"
-    assert result["tourism"]["count"] >= 1
-    assert "get_tourist_attractions" in result["agent_execution"]["domain_steps"]
-    assert result["agent_execution"]["execution_path"] == "stdio_mcp_verified"
-    assert result["agent_execution"]["mcp_servers_called"] == [
-        "weather",
-        "tour",
-        "route",
-    ]
-    assert [item["server"] for item in result["agent_execution"]["trace"][:2]] == [
-        "weather",
-        "tour",
-    ]
-    assert result["agent_execution"]["trace"][-1]["tool"] == "validate_course"
-    assert all(item["transport"] == "stdio" for item in result["agent_execution"]["trace"])
-    assert result["agent_execution"]["mcp_total_duration_ms"] > 0
-    assert result["agent_execution"]["server_lifecycle"] == "application_lifespan"
-    assert result["agent_execution"]["registered_mcp_servers"] == [
-        "weather",
-        "tour",
-        "route",
-        "booking",
-    ]
-    assert any("Mock" in warning for warning in result["warnings"])
-
-
-def test_invalid_time_range_returns_422(client: TestClient) -> None:
-    response = client.post(
-        "/api/v1/course-plans",
-        json=_payload(start_time="21:00", end_time="14:00"),
-    )
-    assert response.status_code == 422
-    assert "종료 시간" in response.json()["detail"]
-
-
-def test_simulated_booking_requires_confirmation_and_is_idempotent(
-    client: TestClient,
-) -> None:
-    course = client.post("/api/v1/course-plans", json=_payload()).json()
-    booking_payload = {
-        "course_id": course["course_id"],
-        "date": course["intent_summary"]["date"],
-        "party_size": course["intent_summary"]["party_size"],
-        "stops": [
-            {
-                "place_id": stop["place_id"],
-                "name": stop["name"],
-                "start_time": stop["start_time"],
-            }
-            for stop in course["course"]["stops"]
-        ],
-        "user_confirmed": False,
+    body = response.json()
+    assert body["intent_summary"]["location"] == "부산"
+    assert all(item["price_per_night"] <= 150_000 for item in body["hotels"]["hotels"])
+    assert body["spots"]["count"] >= 1
+    assert body["mcp_execution"]["servers_called"] == ["weather", "tour"]
+    assert body["mcp_execution"]["transport"] == "streamable_http"
+    assert {item["tool"] for item in body["mcp_execution"]["trace"]} == {
+        "get_current_weather",
+        "get_weather_forecast",
+        "search_hotels",
+        "search_spots",
     }
-    rejected = client.post("/api/v1/bookings", json=booking_payload)
-    assert rejected.status_code == 409
-    assert "명시적 확인" in rejected.json()["detail"]
+    assert all(item["transport"] == "streamable_http" for item in body["mcp_execution"]["trace"])
 
-    booking_payload["user_confirmed"] = True
-    first = client.post("/api/v1/bookings", json=booking_payload)
-    second = client.post("/api/v1/bookings", json=booking_payload)
-    assert first.status_code == second.status_code == 200
-    assert first.json()["booking"]["status"] == "confirmed"
-    assert first.json()["booking"]["confirmation_id"] == second.json()["booking"]["confirmation_id"]
-    assert first.json()["mcp_server"] == "booking"
-    assert first.json()["actual_side_effect"] is False
+
+def test_invalid_hotel_price_is_rejected(client: TestClient) -> None:
+    assert client.post("/api/v1/trip-briefs", json=payload(max_hotel_price=0)).status_code == 422

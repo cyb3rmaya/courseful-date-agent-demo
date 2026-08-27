@@ -1,9 +1,10 @@
-"""JSON 레지스트리로 네 MCP Server를 동시에 연결하는 통합 테스트입니다."""
+"""두 Streamable HTTP MCP Server의 발견과 라우팅 통합 테스트."""
 
 from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -14,52 +15,38 @@ from _multi_mcp_client import connect_to_mcp_servers, load_server_specs  # noqa:
 from ai_agent import REQUIRED_TOOLS  # noqa: E402
 
 
-def test_registry_declares_four_stdio_servers() -> None:
+def test_registry_declares_two_streamable_http_servers() -> None:
     specs = load_server_specs()
-    assert [spec.name for spec in specs] == ["weather", "tour", "route", "booking"]
-    assert all(spec.transport == "stdio" for spec in specs)
-    assert all(Path(spec.args[0]).is_absolute() for spec in specs)
+    assert [spec.name for spec in specs] == ["weather", "tour"]
+    assert all(spec.transport == "streamable_http" for spec in specs)
+    assert specs[0].url.endswith(":8101/mcp")
+    assert specs[1].url.endswith(":8102/mcp")
 
 
-def test_multi_mcp_discovers_and_routes_all_tools() -> None:
+def test_multi_mcp_discovers_and_routes_four_tools() -> None:
     async def scenario() -> None:
         async with connect_to_mcp_servers() as client:
-            assert client.server_names == ("weather", "tour", "route", "booking")
-            tools = (await client.list_tools()).tools
-            assert {tool.name for tool in tools} == REQUIRED_TOOLS
-            assert client.tool_to_server["get_weather"] == "weather"
-            assert client.tool_to_server["get_tourist_attractions"] == "tour"
-            assert client.tool_to_server["validate_course"] == "route"
-            assert client.tool_to_server["confirm_booking"] == "booking"
-
-            weather = await client.call_tool(
-                "get_weather",
-                {"location": "부산", "date": "2026-08-27"},
+            assert client.server_names == ("weather", "tour")
+            assert {tool.name for tool in (await client.list_tools()).tools} == REQUIRED_TOOLS
+            assert client.tool_to_server == {
+                "get_current_weather": "weather",
+                "get_weather_forecast": "weather",
+                "search_hotels": "tour",
+                "search_spots": "tour",
+            }
+            current = await client.call_tool("get_current_weather", {"location": "부산"})
+            forecast = await client.call_tool(
+                "get_weather_forecast",
+                {"location": "부산", "date": (date.today() + timedelta(days=1)).isoformat()},
             )
-            assert weather.isError is False
-            assert weather.structuredContent["source"] == "mock-weather-provider"
-
-            draft = await client.call_tool(
-                "prepare_booking",
-                {
-                    "course_id": "course-test",
-                    "date": "2026-08-27",
-                    "party_size": 2,
-                    "stops": [
-                        {
-                            "place_id": "busan-museum-1",
-                            "name": "부산 현대미술관",
-                            "start_time": "14:00",
-                        }
-                    ],
-                },
+            hotels = await client.call_tool(
+                "search_hotels",
+                {"location": "부산", "max_price_per_night": 150_000},
             )
-            assert draft.isError is False
-            token = draft.structuredContent["booking_token"]
-            rejected = await client.call_tool(
-                "confirm_booking",
-                {"booking_token": token, "user_confirmed": False},
-            )
-            assert rejected.structuredContent["error_code"] == "CONFIRMATION_REQUIRED"
+            spots = await client.call_tool("search_spots", {"location": "부산"})
+            assert current.isError is False
+            assert forecast.isError is False
+            assert hotels.structuredContent["count"] == 3
+            assert spots.structuredContent["count"] >= 1
 
     asyncio.run(scenario())

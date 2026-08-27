@@ -1,71 +1,65 @@
-"""관광·장소 조회를 담당하는 독립 Tour MCP Server입니다."""
+"""호텔과 관광 명소를 제공하는 독립 Streamable HTTP MCP Server."""
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+import argparse
 
-from date_course_tools import (
-    CompanionType,
-    DateContextResult,
-    PlaceDetailsResult,
-    SearchPlacesResult,
+from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from travel_data import (
+    HotelSearch,
+    SpotCategory,
+    SpotSearch,
     SupportedCity,
-    TourAttractionsResult,
-    TourismCategory,
-    get_place_details as get_place_details_impl,
-    get_tourist_attractions as get_tourist_attractions_impl,
-    search_date_context as search_date_context_impl,
-    search_places as search_places_impl,
+    search_hotels as search_hotels_impl,
+    search_spots as search_spots_impl,
 )
 
 
-mcp = FastMCP("tour-and-place-lookup")
+mcp = FastMCP(
+    "tour-http",
+    instructions="1박 최대 가격으로 호텔을 찾고, 지역의 관광 명소를 검색합니다.",
+    json_response=True,
+    stateless_http=True,
+)
 
 
 @mcp.tool()
-def get_tourist_attractions(
-    city: SupportedCity,
-    categories: list[TourismCategory] | None = None,
+def search_hotels(
+    location: SupportedCity,
+    max_price_per_night: int = 150_000,
+    limit: int = 5,
+) -> HotelSearch:
+    """지역과 1박 최대 가격으로 호텔을 검색합니다. 예: 부산, 150000원 이하."""
+    return search_hotels_impl(location, max_price_per_night, limit)
+
+
+@mcp.tool()
+def search_spots(
+    location: SupportedCity,
+    category: SpotCategory = "all",
     limit: int = 6,
-) -> TourAttractionsResult:
-    """부산 또는 서울의 관광 명소와 재사용 가능한 place_id를 반환합니다."""
-    return get_tourist_attractions_impl(city, categories, limit)
+) -> SpotSearch:
+    """지역의 관광 명소를 찾습니다. Kakao REST 키가 있으면 실시간 장소 검색을 사용합니다."""
+    return search_spots_impl(location, category, limit)
 
 
-@mcp.tool()
-def search_places(
-    query: str,
-    location: str,
-    radius_m: int | None = None,
-    categories: list[str] | None = None,
-) -> SearchPlacesResult:
-    """지역과 조건에 맞는 장소 후보를 검색합니다."""
-    return search_places_impl(query, location, radius_m, categories)
+@mcp.custom_route("/health", methods=["GET"])
+async def health(_request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok", "server": "tour", "transport": "streamable_http"})
 
 
-@mcp.tool()
-def get_place_details(place_id: str) -> PlaceDetailsResult:
-    """장소의 영업시간·가격·실내 여부·접근성을 조회합니다."""
-    return get_place_details_impl(place_id)
-
-
-@mcp.tool()
-def search_date_context(
-    companion_type: CompanionType,
-    mood: str,
-    preferences: list[str],
-    constraints: list[str],
-    candidate_place_ids: list[str] | None = None,
-) -> DateContextResult:
-    """후보 장소의 분위기와 동행 맥락 점수를 반환합니다."""
-    return search_date_context_impl(
-        companion_type,
-        mood,
-        preferences,
-        constraints,
-        candidate_place_ids,
-    )
+def _arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Tour Streamable HTTP MCP Server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8102)
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    args = _arguments()
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.run(transport="streamable-http")
