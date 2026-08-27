@@ -182,18 +182,18 @@ function renderWarnings(warnings = []) {
 
 function renderTrace(execution = {}) {
   traceList.replaceChildren();
-  if (Array.isArray(execution.servers) && execution.servers.length) {
+  if (Array.isArray(execution.registered_mcp_servers) && execution.registered_mcp_servers.length) {
     const registryRow = createElement("div", "trace-item");
     registryRow.append(
       createElement("strong", "", "MCP 서버 레지스트리"),
-      createElement("code", "", execution.servers.join(" · ")),
-      createElement("span", "trace-state", `${execution.servers.length}개 연결`),
+      createElement("code", "", execution.registered_mcp_servers.join(" · ")),
+      createElement("span", "trace-state", `${execution.registered_mcp_servers.length}개 등록`),
     );
     traceList.append(registryRow);
   }
   const trace = Array.isArray(execution.trace) && execution.trace.length
     ? execution.trace
-    : (execution.tools || []).map((tool, index) => ({ turn: index + 1, tool, arguments: {}, is_error: false }));
+    : (execution.domain_steps || []).map((tool, index) => ({ turn: index + 1, tool, arguments: {}, is_error: false }));
   trace.forEach((entry) => {
     const row = createElement("div", "trace-item");
     row.append(createElement("strong", "", `${entry.turn || "·"}. ${entry.tool || "도구"}`));

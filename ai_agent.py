@@ -31,6 +31,18 @@ BOOKING_TOOLS = {
     "get_booking_status",
 }
 REQUIRED_TOOLS = COURSE_REQUIRED_TOOLS | BOOKING_TOOLS
+BOOKING_CONFIRMATION_PHRASES = (
+    "모의 예약 실행",
+    "모의 예약 확정",
+    "예약을 확정",
+    "예약 확정해",
+    "예약해 줘",
+    "예약해줘",
+    "예약해 주세요",
+    "예약 진행해",
+    "confirm the simulated booking",
+    "confirm booking",
+)
 
 DEFAULT_INSTRUCTIONS = """You are DateCourseAgent.
 
@@ -74,7 +86,9 @@ If critical information is missing and no safe assumption can produce a useful
 result, ask only the minimum necessary question using validation.status
 "needs_clarification".
 
-After a successful validation, return only one JSON object with this shape:
+If the user requested booking, continue with prepare_booking after successful
+validation. Call confirm_booking only when the same user message explicitly
+confirms or requests that action. Then return one JSON object with this shape:
 {
   "intent_summary": {},
   "assumptions": [],
@@ -83,7 +97,8 @@ After a successful validation, return only one JSON object with this shape:
   "known_total_cost": 0,
   "unknown_costs": [],
   "warnings": [],
-  "validation": {"status": "pass"}
+  "validation": {"status": "pass"},
+  "booking": null
 }
 """
 
@@ -152,6 +167,12 @@ def _validation_messages(validation: dict[str, Any]) -> list[str]:
         if isinstance(issue, dict) and issue.get("message"):
             messages.append(str(issue["message"]))
     return messages
+
+
+def _has_explicit_booking_confirmation(question: str) -> bool:
+    """LLM 판단과 별개로 원문에 예약 실행 의사가 명시됐는지 확인합니다."""
+    normalized = " ".join(question.casefold().split())
+    return any(phrase in normalized for phrase in BOOKING_CONFIRMATION_PHRASES)
 
 
 class DateCourseAgent:
@@ -277,6 +298,25 @@ class DateCourseAgent:
                             )
                             is_error = True
                         else:
+                            if (
+                                call.name in {"prepare_booking", "confirm_booking"}
+                                and validation.get("valid") is not True
+                            ):
+                                output_text = _error_output(
+                                    "COURSE_NOT_VALIDATED",
+                                    "예약 액션 전에 코스 검증을 통과해야 합니다.",
+                                )
+                                is_error = True
+                            elif (
+                                call.name == "confirm_booking"
+                                and arguments.get("user_confirmed") is True
+                                and not _has_explicit_booking_confirmation(question)
+                            ):
+                                output_text = _error_output(
+                                    "EXPLICIT_CONFIRMATION_REQUIRED",
+                                    "사용자 원문에 예약 실행 또는 확정 의사가 명시되지 않았습니다.",
+                                )
+                                is_error = True
                             if call.name == "validate_course" and protected_place_ids:
                                 candidate_by_id = {
                                     item.get("stop_id"): item.get("place_id")
@@ -322,7 +362,7 @@ class DateCourseAgent:
                                         },
                                         ensure_ascii=False,
                                     )
-                            if not locality_rejected:
+                            if not is_error and not locality_rejected:
                                 try:
                                     tool_result = await asyncio.wait_for(
                                         session.call_tool(call.name, arguments),
@@ -396,11 +436,10 @@ class DateCourseAgent:
                                 else {}
                             )
 
-                if validated_this_turn or exhausted_this_turn:
-                    if exhausted_this_turn:
-                        agent_warnings.append(
-                            "최대 2회 재계획 후에도 검증을 통과하지 못했습니다."
-                        )
+                if exhausted_this_turn:
+                    agent_warnings.append(
+                        "최대 2회 재계획 후에도 검증을 통과하지 못했습니다."
+                    )
                     response = await self.client.responses.create(
                         model=self.model,
                         instructions=self.instructions,
@@ -492,6 +531,15 @@ class DateCourseAgent:
                 }
             )
 
+        booking_output: dict[str, Any] | None = None
+        for entry in reversed(trace):
+            if entry["tool"] not in BOOKING_TOOLS or entry["is_error"]:
+                continue
+            parsed_booking = _json_object(entry["result"])
+            if parsed_booking is not None:
+                booking_output = parsed_booking
+                break
+
         return {
             "intent_summary": _dict(payload.get("intent_summary")),
             "assumptions": [str(item) for item in _list(payload.get("assumptions"))],
@@ -505,6 +553,7 @@ class DateCourseAgent:
             ],
             "warnings": warnings,
             "validation": validation_output,
+            "booking": booking_output,
             "agent_execution": {
                 "question": question,
                 "model": self.model,

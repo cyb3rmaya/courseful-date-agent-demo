@@ -64,10 +64,10 @@ def _response(response_id: str, *, call=None, output_text=""):
     return SimpleNamespace(id=response_id, output=output, output_text=output_text)
 
 
-def _call(call_id: str, arguments):
+def _call(call_id: str, arguments, *, name="validate_course"):
     return SimpleNamespace(
         type="function_call",
-        name="validate_course",
+        name=name,
         arguments=json.dumps(arguments, ensure_ascii=False),
         call_id=call_id,
     )
@@ -197,3 +197,114 @@ def test_local_replan_guard_preserves_unaffected_place() -> None:
     guarded = json.loads(result["agent_execution"]["trace"][1]["result"])
     assert guarded["errors"][0]["code"] == "NON_LOCAL_REPLAN"
     assert result["agent_execution"]["replan_count"] == 2
+
+
+def test_booking_runs_after_validation_with_explicit_confirmation() -> None:
+    import asyncio
+
+    validated = [_stop("stop_1", "busan-cafe-1")]
+    responses = [
+        _response("r1", call=_call("c1", _arguments(validated))),
+        _response(
+            "r2",
+            call=_call(
+                "c2",
+                {
+                    "course_id": "course-1",
+                    "date": "2026-08-26",
+                    "party_size": 2,
+                    "stops": [
+                        {
+                            "place_id": "busan-cafe-1",
+                            "name": "부산 카페",
+                            "start_time": "14:00",
+                        }
+                    ],
+                },
+                name="prepare_booking",
+            ),
+        ),
+        _response(
+            "r3",
+            call=_call(
+                "c3",
+                {"booking_token": "booking-1", "user_confirmed": True},
+                name="confirm_booking",
+            ),
+        ),
+        _response("r4", output_text='{"validation":{"status":"pass"}}'),
+    ]
+
+    class BookingSession(FakeSession):
+        async def call_tool(self, name, arguments):
+            self.called_arguments.append((name, arguments))
+            if name == "validate_course":
+                payload = next(self.validation_results)
+            elif name == "prepare_booking":
+                payload = {
+                    "booking_token": "booking-1",
+                    "status": "awaiting_confirmation",
+                }
+            elif name == "confirm_booking":
+                payload = {
+                    "booking_token": "booking-1",
+                    "confirmation_id": "sim-confirm-1",
+                    "status": "confirmed",
+                }
+            else:
+                raise AssertionError(f"예상하지 않은 Tool: {name}")
+            return SimpleNamespace(structuredContent=payload, content=[], isError=False)
+
+    session = BookingSession([_validation(True)])
+
+    @asynccontextmanager
+    async def connector():
+        yield session
+
+    client = FakeClient(responses)
+    agent = DateCourseAgent(model="fake-model", client=client, connector=connector)
+    result = asyncio.run(agent.answer("코스를 만들고 모의 예약을 확정해줘"))
+
+    assert [name for name, _ in session.called_arguments] == [
+        "validate_course",
+        "prepare_booking",
+        "confirm_booking",
+    ]
+    assert result["booking"]["status"] == "confirmed"
+    assert result["booking"]["confirmation_id"] == "sim-confirm-1"
+    assert "tools" in client.responses.calls[1]
+
+
+def test_booking_confirmation_is_blocked_without_explicit_user_authorization() -> None:
+    import asyncio
+
+    validated = [_stop("stop_1", "busan-cafe-1")]
+    responses = [
+        _response("r1", call=_call("c1", _arguments(validated))),
+        _response(
+            "r2",
+            call=_call(
+                "c2",
+                {"booking_token": "booking-1", "user_confirmed": True},
+                name="confirm_booking",
+            ),
+        ),
+        _response("r3", output_text='{"validation":{"status":"pass"}}'),
+    ]
+    session = FakeSession([_validation(True)])
+
+    @asynccontextmanager
+    async def connector():
+        yield session
+
+    agent = DateCourseAgent(
+        model="fake-model",
+        client=FakeClient(responses),
+        connector=connector,
+    )
+    result = asyncio.run(agent.answer("부산 코스만 추천해 줘"))
+
+    assert [name for name, _ in session.called_arguments] == ["validate_course"]
+    blocked = json.loads(result["agent_execution"]["trace"][1]["result"])
+    assert blocked["error_code"] == "EXPLICIT_CONFIRMATION_REQUIRED"
+    assert result["booking"] is None

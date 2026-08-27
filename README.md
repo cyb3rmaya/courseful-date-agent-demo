@@ -99,6 +99,11 @@ Booking 서버는 외부 예약사, 결제, DB INSERT를 호출하지 않습니�
 상태를 모의 확정합니다. stdio의 `stdout`은 JSON-RPC 전용이므로 과제에서 요구한
 `print` 동작 확인은 UTF-8 `stderr` 로그로 구현했습니다.
 
+Agent는 예약 Tool을 코스 검증 통과 뒤에만 호출할 수 있습니다. 또한 LLM이 임의로
+`user_confirmed=true`를 만들더라도 사용자 원문에 예약 실행·확정 의사가 없으면
+`EXPLICIT_CONFIRMATION_REQUIRED`로 차단합니다. 검증 완료 뒤에도 Tool loop를 열어
+두므로 예약 요청은 `prepare_booking → confirm_booking` 순서로 실제 실행됩니다.
+
 ```mermaid
 flowchart LR
     UI[브라우저 UI] --> API[FastAPI /api/v1]
@@ -140,7 +145,10 @@ Streamable HTTP를 표준 전송으로 정의하며, Streamable HTTP가 2024-11-
 
 현재 정적 UI가 이미 `POST /api/v1/course-plans`와 `POST /api/v1/bookings`를 호출하며,
 Booking API는 JSON 레지스트리에서 `booking` 서버만 선택해 실제 stdio MCP Tool을
-호출합니다.
+호출합니다. 무료 공개판의 코스 생성 API는 응답 지연과 LLM 비용을 피하기 위해 동일한
+도메인 함수를 인프로세스로 실행합니다. 따라서 화면에는 네 서버를 **등록됨**으로 표시하고,
+코스 생성에서 네 서버가 모두 호출됐다고 표시하지 않습니다. 네 MCP를 실제로 함께 호출하는
+경로는 `06_mcp_call.py`와 `07_multi_mcp_check.py`입니다.
 React/Next.js로 교체해도 이 HTTP 계약은 그대로 유지할 수 있습니다. 예약 패널은 사용자가
 모의 실행임을 체크해야 활성화되며 확인 ID와 `actual_side_effect: false`를 표시합니다.
 

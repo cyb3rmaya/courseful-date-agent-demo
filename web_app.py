@@ -421,8 +421,10 @@ def build_mock_course(payload: CourseRequest) -> dict:
         },
         "agent_execution": {
             "mode": "deterministic_mock",
-            "servers": ["weather", "tour", "route", "booking"],
-            "tools": [
+            "execution_path": "in_process_free_demo",
+            "registered_mcp_servers": ["weather", "tour", "route", "booking"],
+            "mcp_servers_called": [],
+            "domain_steps": [
                 "get_weather",
                 "get_tourist_attractions",
                 "search_places",

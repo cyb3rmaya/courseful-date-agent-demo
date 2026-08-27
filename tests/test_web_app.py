@@ -73,8 +73,10 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert result["agent_execution"]["mode"] == "deterministic_mock"
     assert result["tourism"]["source"] == "local-tour-catalog"
     assert result["tourism"]["count"] >= 1
-    assert "get_tourist_attractions" in result["agent_execution"]["tools"]
-    assert result["agent_execution"]["servers"] == [
+    assert "get_tourist_attractions" in result["agent_execution"]["domain_steps"]
+    assert result["agent_execution"]["execution_path"] == "in_process_free_demo"
+    assert result["agent_execution"]["mcp_servers_called"] == []
+    assert result["agent_execution"]["registered_mcp_servers"] == [
         "weather",
         "tour",
         "route",
