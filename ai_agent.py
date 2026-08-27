@@ -17,6 +17,7 @@ MAX_AGENT_TURNS = 14
 TOOL_TIMEOUT_SECONDS = 10
 REQUIRED_TOOLS = {
     "get_weather",
+    "get_tourist_attractions",
     "search_places",
     "get_place_details",
     "calculate_route",
@@ -36,6 +37,12 @@ Use tools when external or current facts are needed. Never invent weather,
 opening hours, route duration, live price, availability, or another dynamic
 fact that is not present in tool results. Mock sources must be disclosed as a
 warning; do not present them as live provider data.
+
+When the user asks for attractions, landmarks, sightseeing, or places to visit,
+use get_tourist_attractions. Treat its result as the tourism catalog of record:
+do not add attraction facts that are absent from that Tool result. Reuse each
+returned place_id with the detail, route, and validation tools instead of
+matching places by name.
 
 Prefer deterministic tools for budget arithmetic, time overlap, opening-hours,
 route limits, and hard-constraint checks. Before returning a final course:

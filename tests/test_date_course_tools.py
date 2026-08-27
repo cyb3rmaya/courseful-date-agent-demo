@@ -16,6 +16,7 @@ from date_course_tools import (  # noqa: E402
     calculate_route,
     estimate_course_budget,
     get_place_details,
+    get_tourist_attractions,
     search_places,
     validate_course,
 )
@@ -71,6 +72,26 @@ def test_place_search_and_route_return_verifiable_metadata() -> None:
     assert route.error_code is None
     assert route.distance_m and route.distance_m > 0
     assert route.duration_min and route.duration_min > 0
+
+
+def test_tour_catalog_filters_city_and_category_with_reusable_place_ids() -> None:
+    result = get_tourist_attractions("부산", ["자연관광"], limit=6)
+
+    assert result.city == "부산"
+    assert result.source == "local-tour-catalog"
+    assert result.count == 2
+    assert {item.name for item in result.items} == {
+        "해운대 해수욕장",
+        "광안리 해수욕장",
+    }
+    assert all(get_place_details(item.place_id).error_code is None for item in result.items)
+
+
+def test_tour_catalog_rejects_unsupported_city() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="부산 또는 서울"):
+        get_tourist_attractions("제주")  # type: ignore[arg-type]
 
 
 def test_budget_keeps_unknown_price_separate() -> None:

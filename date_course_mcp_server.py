@@ -12,6 +12,9 @@ from date_course_tools import (
     PlaceDetailsResult,
     RouteResult,
     SearchPlacesResult,
+    SupportedCity,
+    TourAttractionsResult,
+    TourismCategory,
     Transportation,
     UserIntentInput,
     ValidationResult,
@@ -19,6 +22,7 @@ from date_course_tools import (
     calculate_route as calculate_route_impl,
     estimate_course_budget as estimate_course_budget_impl,
     get_place_details as get_place_details_impl,
+    get_tourist_attractions as get_tourist_attractions_impl,
     get_weather as get_weather_impl,
     search_date_context as search_date_context_impl,
     search_places as search_places_impl,
@@ -39,6 +43,20 @@ mcp = FastMCP(
 def get_weather(location: str, date: str) -> WeatherResult:
     """지역/날짜의 날씨를 조회합니다. Mock 결과는 source로 명시됩니다."""
     return get_weather_impl(location, date)
+
+
+@mcp.tool()
+def get_tourist_attractions(
+    city: SupportedCity,
+    categories: list[TourismCategory] | None = None,
+    limit: int = 6,
+) -> TourAttractionsResult:
+    """부산 또는 서울의 대표 관광 명소를 조회합니다.
+
+    관광지·명소·가볼 곳 요청에 사용하며, 결과에 없는 관광 정보는 임의로
+    추가하지 마세요. 반환된 place_id는 다른 장소·경로 Tool과 연결됩니다.
+    """
+    return get_tourist_attractions_impl(city, categories, limit)
 
 
 @mcp.tool()

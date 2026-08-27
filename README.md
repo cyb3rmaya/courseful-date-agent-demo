@@ -1,9 +1,9 @@
-# 03 MCP (Model Context Protocol)
+# Courseful MCP 여행 코스 플래너
 
 ## 공개 웹 데모
 
 **배포 URL:** https://courseful-date-agent-demo.onrender.com  
-**소스 저장소:** https://github.com/cyb3rmaya/courseful-date-agent-demo
+**독립 배포 저장소:** https://github.com/cyb3rmaya/courseful-date-agent-demo
 
 `plan.md`의 코스 입력·Timeline·장소 카드·검증·부분 재계획 흐름을 브라우저에서
 확인할 수 있도록 FastAPI 단일 서비스 웹 데모를 제공합니다.
@@ -13,6 +13,7 @@ web_app.py
 ├─ static/index.html
 ├─ static/styles.css
 ├─ static/app.js
+├─ date_course_mcp_server.py
 └─ date_course_tools.py
 ```
 
@@ -47,6 +48,32 @@ API 문서  http://127.0.0.1:8000/docs
 `deterministic_mock` 모드이며 입력을 저장하지 않습니다. 실제 OpenAI + MCP Agent는
 공개 웹과 분리된 `06_mcp_call.py`로 실행합니다.
 
+### Tour MCP 계획 통합
+
+`tour_mcp_plan_package.zip`의 문서는 다른 멀티 서버 실습을 기준으로 작성되어 있어
+파일 구조를 그대로 복사하지 않고 현재 단일 Date Course MCP Server 구조에 맞췄습니다.
+
+```text
+get_tourist_attractions(city, categories, limit)
+→ 부산/서울 및 관광 유형 Schema 검증
+→ local-tour-catalog에서 명소와 place_id 반환
+→ get_place_details / calculate_route에 같은 place_id 전달
+→ validate_course로 일정·예산·필수 조건 검증
+```
+
+- Agent에 관광 전용 분기를 추가하지 않고 `tools/list` 자동 발견을 유지합니다.
+- 관광 Tool 결과에 없는 명소 정보를 최종 결과에 임의로 추가하지 않습니다.
+- 운영시간·가격처럼 바뀌는 값은 관광 카탈로그에서 확정하지 않습니다.
+- 공개 UI는 관광 유형, 명소 설명, 검증 동선을 한 화면에 함께 표시합니다.
+
+### UI 적용 기준
+
+- Wanderlog: 일정과 지도/명소를 한 화면에서 비교하는 정보 구조
+- GitHub Primer: 명확한 카드 경계, 상태 배지, 점진적 상세 공개
+- GOV.UK Design System: 상대 단위 글자 크기, 굵은 위계, 작은 화면 가독성
+- 브랜드 화면이나 오픈소스 코드를 복제하지 않고 패턴과 원칙만 재구성
+- 외부 폰트 없이 한국어 시스템 글꼴을 사용하고 모든 소스 파일을 UTF-8로 유지
+
 ## Agent 실행 파일 묶음
 
 ```text
@@ -68,8 +95,8 @@ API 문서  http://127.0.0.1:8000/docs
 `plan.md`의 DateCourseAgent 계약으로 확장한 예제입니다.
 
 ```powershell
-python .\03_mcp\06_mcp_call.py
-python .\03_mcp\06_mcp_call.py "서울에서 가족 3명이 12시부터 18시까지 걷기 적은 실내 코스를 짜 줘. 예산은 12만원이야."
+python .\06_mcp_call.py
+python .\06_mcp_call.py "서울에서 가족 3명이 12시부터 18시까지 걷기 적은 실내 코스를 짜 줘. 예산은 12만원이야."
 ```
 
 ### 06번 PLAN 계약
@@ -78,7 +105,7 @@ python .\03_mcp\06_mcp_call.py "서울에서 가족 3명이 12시부터 18시까
 자연어 요청
 → DateCourseAgent가 Hard Constraint / Soft Preference 분리
 → 필요한 MCP Tool만 선택
-→ 날씨 / 장소 / 상세 / 경로 / 의미 맥락 조회
+→ 날씨 / 관광 명소 / 장소 / 상세 / 경로 / 의미 맥락 조회
 → 결정론적 예산 계산
 → validate_course
 → 실패 Stop만 교체(정상 Stop의 place_id는 Agent가 보호)
@@ -94,7 +121,7 @@ python .\03_mcp\06_mcp_call.py "서울에서 가족 3명이 12시부터 18시까
 관련 테스트만 실행하려면 과정 루트에서 다음을 사용합니다.
 
 ```powershell
-pytest .\03_mcp\tests -q
+pytest .\tests -q
 ```
 
 MCP는 Tool과 Context를 특정 Agent 코드에 직접 묶지 않고, Client가 발견하고 호출할
@@ -175,12 +202,13 @@ Client가 종료되면 서버 프로세스도 함께 종료됩니다.
 
 ## 준비
 
-과정 루트에서 가상환경을 활성화하고 의존성을 설치합니다.
+독립 배포 저장소 루트에서 가상환경을 만들고 의존성을 설치합니다.
 
 ```powershell
-cd C:\aidevs\05_llm-agent-orchestration
+cd .\courseful-date-agent-demo
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements-deploy.txt
 ```
 
 MCP Python SDK는 안정적인 v1 API를 사용하도록 `mcp>=1.27,<2`로 제한합니다.
@@ -191,10 +219,10 @@ MCP Python SDK는 안정적인 v1 API를 사용하도록 `mcp>=1.27,<2`로 제�
 것이 정상입니다. 학습할 때는 Client 예제를 실행합니다.
 
 ```powershell
-python .\03_mcp\02_list_and_call_tools.py
-python .\03_mcp\03_read_resource.py
-python .\03_mcp\04_validation_and_errors.py
-python .\03_mcp\05_mcp_tool_loop.py
+python .\02_list_and_call_tools.py
+python .\03_read_resource.py
+python .\04_validation_and_errors.py
+python .\05_mcp_tool_loop.py
 ```
 
 `05_mcp_tool_loop.py`는 OpenAI Responses API를 사용합니다. 과정 루트의 `.env`에

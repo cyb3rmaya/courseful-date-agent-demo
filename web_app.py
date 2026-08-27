@@ -20,9 +20,11 @@ from date_course_tools import (
     CourseStopInput,
     PlaceDetailsResult,
     RouteInput,
+    TourismCategory,
     UserIntentInput,
     calculate_route,
     get_place_details,
+    get_tourist_attractions,
     get_weather,
     search_date_context,
     search_places,
@@ -38,6 +40,9 @@ VISIT_MINUTES = {
     "activity": 75,
     "night_view": 60,
     "walk": 60,
+    "nature": 70,
+    "heritage": 75,
+    "landmark": 70,
 }
 CATEGORY_LABELS = {
     "cafe": "카페",
@@ -46,6 +51,9 @@ CATEGORY_LABELS = {
     "activity": "체험",
     "night_view": "야경",
     "walk": "산책",
+    "nature": "자연",
+    "heritage": "역사",
+    "landmark": "명소",
 }
 
 
@@ -63,6 +71,10 @@ class CourseRequest(BaseModel):
     )
     hard_constraints: list[str] = Field(default_factory=list, max_length=10)
     soft_preferences: list[str] = Field(default_factory=list, max_length=10)
+    tourism_categories: list[TourismCategory] = Field(
+        default_factory=list,
+        max_length=4,
+    )
     max_walking_distance_m: int | None = Field(default=None, ge=0, le=100_000)
 
     @field_validator("date")
@@ -112,11 +124,20 @@ def _preferred_categories(preferences: list[str]) -> set[str]:
         "체험": "activity",
         "야경": "night_view",
         "산책": "walk",
+        "자연": "nature",
+        "역사": "heritage",
+        "문화유산": "heritage",
+        "랜드마크": "landmark",
+        "명소": "landmark",
     }
     return {aliases[item] for item in preferences if item in aliases}
 
 
-def _candidate_details(payload: CourseRequest, weather_condition: str) -> list[PlaceDetailsResult]:
+def _candidate_details(
+    payload: CourseRequest,
+    weather_condition: str,
+    tour_place_ids: set[str],
+) -> list[PlaceDetailsResult]:
     summaries = search_places("", payload.location).places
     context = search_date_context(
         payload.companion_type,
@@ -148,6 +169,8 @@ def _candidate_details(payload: CourseRequest, weather_condition: str) -> list[P
         score = 0
         if details.category in preferred:
             score += 20
+        if details.place_id in tour_place_ids:
+            score += 18
         if semantic:
             if payload.companion_type == "family":
                 score += semantic.scores.get("family", 0) * 2
@@ -229,6 +252,8 @@ def _compose_stops(
                 opening_hours_verified=details.opening_hours_verified,
                 indoor=details.indoor,
                 accessible=details.accessible,
+                tourism_category=details.tourism_category,
+                description=details.description,
                 route_from_previous=route,
                 recommendation_rationale=(
                     f"요청 조건에 맞춘 {CATEGORY_LABELS.get(details.category or '', details.category or '장소')} "
@@ -285,7 +310,17 @@ def build_mock_course(payload: CourseRequest) -> dict:
         weather_condition=weather.condition,
         max_walking_distance_m=payload.max_walking_distance_m,
     )
-    candidates = _candidate_details(payload, weather.condition or "unknown")
+    tourism = get_tourist_attractions(
+        payload.location,
+        payload.tourism_categories or None,
+        limit=8,
+    )
+    tour_place_ids = {item.place_id for item in tourism.items}
+    candidates = _candidate_details(
+        payload,
+        weather.condition or "unknown",
+        tour_place_ids,
+    )
     stops = _compose_stops(payload, candidates)
     validation = validate_course(intent, stops)
     validation_attempts = 1
@@ -323,6 +358,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
             "weather": weather.model_dump(),
         },
         "assumptions": intent.assumptions,
+        "tourism": tourism.model_dump(),
         "course": {
             "stops": [stop.model_dump() for stop in stops],
             "total_route_time": validation.total_route_time,
@@ -330,6 +366,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
         },
         "recommendation_rationale": [
             "Hard Constraint를 먼저 필터링하고 선호 카테고리와 의미 점수를 반영했습니다.",
+            "관광 명소는 로컬 관광 카탈로그의 place_id를 장소·경로 검증에 연결했습니다.",
             "가격·시간·영업시간·이동시간은 결정론적 Validator로 확인했습니다.",
         ],
         "known_total_cost": validation.known_total_cost,
@@ -345,6 +382,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
             "mode": "deterministic_mock",
             "tools": [
                 "get_weather",
+                "get_tourist_attractions",
                 "search_places",
                 "get_place_details",
                 "search_date_context",
@@ -359,9 +397,9 @@ def build_mock_course(payload: CourseRequest) -> dict:
 
 
 app = FastAPI(
-    title="Context-Aware Date Course Agent",
-    description="PLAN.md 기반 무료 Mock Tool 데모",
-    version="1.0.0",
+    title="Courseful City Course Planner",
+    description="관광 명소와 일정 조건을 결정론적으로 검증하는 무료 공개 데모",
+    version="1.1.0",
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -383,6 +421,16 @@ async def security_headers(request, call_next):
 @app.get("/", include_in_schema=False)
 def home() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.head("/", include_in_schema=False)
+def home_head() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    return FileResponse(STATIC_DIR / "favicon.svg", media_type="image/svg+xml")
 
 
 @app.get("/health")

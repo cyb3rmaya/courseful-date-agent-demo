@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 
 CompanionType = Literal["couple", "family", "friends"]
 Transportation = Literal["walking", "public_transport", "car"]
+SupportedCity = Literal["부산", "서울"]
+TourismCategory = Literal["자연관광", "문화관광", "역사관광", "도시명소"]
 
 
 def _fetched_at() -> str:
@@ -49,6 +51,21 @@ class SearchPlacesResult(ToolMetadata):
     places: list[PlaceSummary] = Field(default_factory=list)
 
 
+class TouristAttraction(BaseModel):
+    id: str
+    place_id: str
+    name: str
+    city: SupportedCity
+    category: TourismCategory
+    description: str
+
+
+class TourAttractionsResult(ToolMetadata):
+    city: SupportedCity
+    items: list[TouristAttraction] = Field(default_factory=list)
+    count: int = Field(ge=0)
+
+
 class PlaceDetailsResult(ToolMetadata):
     place_id: str
     name: str | None = None
@@ -62,6 +79,8 @@ class PlaceDetailsResult(ToolMetadata):
     official_url: str | None = None
     indoor: bool | None = None
     accessible: bool | None = None
+    tourism_category: TourismCategory | None = None
+    description: str | None = None
 
 
 class RouteResult(ToolMetadata):
@@ -106,6 +125,8 @@ class CourseStopInput(BaseModel):
     opening_hours_verified: bool = False
     indoor: bool | None = None
     accessible: bool | None = None
+    tourism_category: TourismCategory | None = None
+    description: str | None = None
     route_from_previous: RouteInput | None = None
     recommendation_rationale: str | None = None
 
@@ -166,6 +187,8 @@ _PLACES: tuple[dict[str, Any], ...] = (
         "estimated_cost_per_person": 0,
         "indoor": True,
         "accessible": True,
+        "tourism_category": "문화관광",
+        "description": "현대미술 전시와 강변 풍경을 함께 둘러보기 좋은 문화 공간",
         "semantic_tags": ["indoor", "quiet", "conversation", "family"],
         "scores": {"romantic": 3, "conversation": 5, "photo": 4, "family": 5},
     },
@@ -211,6 +234,8 @@ _PLACES: tuple[dict[str, Any], ...] = (
         "estimated_cost_per_person": 0,
         "indoor": False,
         "accessible": False,
+        "tourism_category": "도시명소",
+        "description": "부산 도심의 능선과 야경을 넓게 조망하는 전망 지점",
         "semantic_tags": ["outdoor", "romantic", "night-view", "photo"],
         "scores": {"romantic": 5, "conversation": 3, "photo": 5, "family": 2},
     },
@@ -256,6 +281,8 @@ _PLACES: tuple[dict[str, Any], ...] = (
         "estimated_cost_per_person": 1_000,
         "indoor": False,
         "accessible": True,
+        "tourism_category": "역사관광",
+        "description": "궁궐 담장과 도심 산책이 자연스럽게 이어지는 역사 거리",
         "semantic_tags": ["outdoor", "romantic", "walk", "photo"],
         "scores": {"romantic": 5, "conversation": 4, "photo": 5, "family": 4},
     },
@@ -273,6 +300,108 @@ _PLACES: tuple[dict[str, Any], ...] = (
         "accessible": True,
         "semantic_tags": ["indoor", "quiet", "conversation", "family"],
         "scores": {"romantic": 4, "conversation": 5, "photo": 3, "family": 5},
+    },
+    {
+        "place_id": "busan-haeundae-1",
+        "name": "해운대 해수욕장",
+        "category": "nature",
+        "address": "부산광역시 해운대구 해운대해변로 264",
+        "lat": 35.1587,
+        "lng": 129.1604,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": 0,
+        "indoor": False,
+        "accessible": True,
+        "tourism_category": "자연관광",
+        "description": "넓은 백사장과 해안 산책 동선을 갖춘 부산의 대표 해변",
+        "semantic_tags": ["outdoor", "ocean-view", "walk", "photo", "family"],
+        "scores": {"romantic": 5, "conversation": 3, "photo": 5, "family": 5},
+    },
+    {
+        "place_id": "busan-gamcheon-1",
+        "name": "감천문화마을",
+        "category": "heritage",
+        "address": "부산광역시 사하구 감내2로 203",
+        "lat": 35.0975,
+        "lng": 129.0106,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": 0,
+        "indoor": False,
+        "accessible": False,
+        "tourism_category": "문화관광",
+        "description": "산복도로 골목과 공공미술을 따라 걷는 부산의 마을형 명소",
+        "semantic_tags": ["outdoor", "culture", "walk", "photo"],
+        "scores": {"romantic": 4, "conversation": 3, "photo": 5, "family": 3},
+    },
+    {
+        "place_id": "busan-gwangalli-1",
+        "name": "광안리 해수욕장",
+        "category": "nature",
+        "address": "부산광역시 수영구 광안해변로 219",
+        "lat": 35.1532,
+        "lng": 129.1187,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": 0,
+        "indoor": False,
+        "accessible": True,
+        "tourism_category": "자연관광",
+        "description": "광안대교를 바라보며 산책과 야경을 즐기는 도심 해변",
+        "semantic_tags": ["outdoor", "ocean-view", "night-view", "photo"],
+        "scores": {"romantic": 5, "conversation": 4, "photo": 5, "family": 4},
+    },
+    {
+        "place_id": "seoul-gyeongbokgung-1",
+        "name": "경복궁",
+        "category": "heritage",
+        "address": "서울특별시 종로구 사직로 161",
+        "lat": 37.5796,
+        "lng": 126.9770,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": None,
+        "indoor": False,
+        "accessible": True,
+        "tourism_category": "역사관광",
+        "description": "궁궐 건축과 도심의 역사 축을 함께 살펴보는 서울의 대표 고궁",
+        "semantic_tags": ["outdoor", "history", "culture", "photo", "family"],
+        "scores": {"romantic": 4, "conversation": 3, "photo": 5, "family": 5},
+    },
+    {
+        "place_id": "seoul-n-tower-1",
+        "name": "N서울타워",
+        "category": "landmark",
+        "address": "서울특별시 용산구 남산공원길 105",
+        "lat": 37.5512,
+        "lng": 126.9882,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": None,
+        "indoor": True,
+        "accessible": True,
+        "tourism_category": "도시명소",
+        "description": "남산 정상에서 서울의 스카이라인을 조망하는 도시 랜드마크",
+        "semantic_tags": ["indoor", "landmark", "night-view", "photo"],
+        "scores": {"romantic": 5, "conversation": 3, "photo": 5, "family": 4},
+    },
+    {
+        "place_id": "seoul-bukchon-1",
+        "name": "북촌한옥마을",
+        "category": "heritage",
+        "address": "서울특별시 종로구 계동길 37",
+        "lat": 37.5826,
+        "lng": 126.9830,
+        "opening_hours": None,
+        "opening_hours_verified": False,
+        "estimated_cost_per_person": 0,
+        "indoor": False,
+        "accessible": False,
+        "tourism_category": "역사관광",
+        "description": "한옥 골목의 생활 경관을 조용히 걸으며 살펴보는 역사 마을",
+        "semantic_tags": ["outdoor", "history", "walk", "photo"],
+        "scores": {"romantic": 4, "conversation": 3, "photo": 5, "family": 3},
     },
 )
 
@@ -302,6 +431,49 @@ def get_weather(location: str, date: str) -> WeatherResult:
     )
 
 
+def get_tourist_attractions(
+    city: SupportedCity,
+    categories: list[TourismCategory] | None = None,
+    limit: int = 6,
+) -> TourAttractionsResult:
+    """도시별 관광 명소를 안정적인 로컬 카탈로그에서 조회합니다.
+
+    운영시간과 요금처럼 바뀔 수 있는 값은 이 Tool에서 단정하지 않습니다. 반환된
+    ``place_id``는 장소 상세·경로·검증 Tool에서 그대로 재사용할 수 있습니다.
+    """
+    normalized = city.strip()
+    if normalized not in {"부산", "서울"}:
+        raise ValueError("city는 부산 또는 서울이어야 합니다.")
+    if not 1 <= limit <= 12:
+        raise ValueError("limit는 1 이상 12 이하여야 합니다.")
+    wanted = set(categories or [])
+    items: list[TouristAttraction] = []
+    for place in _PLACES:
+        tourism_category = place.get("tourism_category")
+        if normalized not in place["address"] or tourism_category is None:
+            continue
+        if wanted and tourism_category not in wanted:
+            continue
+        items.append(
+            TouristAttraction(
+                id=f"tour-{place['place_id']}",
+                place_id=place["place_id"],
+                name=place["name"],
+                city=normalized,
+                category=tourism_category,
+                description=place["description"],
+            )
+        )
+        if len(items) >= limit:
+            break
+    return TourAttractionsResult(
+        city=normalized,
+        items=items,
+        count=len(items),
+        source="local-tour-catalog",
+    )
+
+
 def search_places(
     query: str,
     location: str,
@@ -322,6 +494,10 @@ def search_places(
         "야경": "night_view",
         "산책": "walk",
         "체험": "activity",
+        "자연": "nature",
+        "역사": "heritage",
+        "궁궐": "heritage",
+        "랜드마크": "landmark",
     }
     query_terms = [
         aliases.get(term, term)
@@ -354,7 +530,11 @@ def get_place_details(place_id: str) -> PlaceDetailsResult:
             error_code="PLACE_NOT_FOUND",
         )
     return PlaceDetailsResult(
-        **{key: value for key, value in item.items() if key not in {"semantic_tags", "scores"}},
+        **{
+            key: value
+            for key, value in item.items()
+            if key not in {"semantic_tags", "scores"}
+        },
         official_url=None,
         source="mock-place-provider",
     )
@@ -679,6 +859,10 @@ __all__ = [
     "PlaceDetailsResult",
     "RouteResult",
     "SearchPlacesResult",
+    "SupportedCity",
+    "TourAttractionsResult",
+    "TourismCategory",
+    "TouristAttraction",
     "Transportation",
     "UserIntentInput",
     "ValidationResult",
@@ -686,6 +870,7 @@ __all__ = [
     "calculate_route",
     "estimate_course_budget",
     "get_place_details",
+    "get_tourist_attractions",
     "get_weather",
     "search_date_context",
     "search_places",

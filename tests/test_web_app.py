@@ -30,6 +30,7 @@ def _payload(**overrides):
         "transportation": "public_transport",
         "hard_constraints": ["비 오면 실내"],
         "soft_preferences": ["카페", "대화"],
+        "tourism_categories": ["문화관광", "도시명소"],
     }
     payload.update(overrides)
     return payload
@@ -39,7 +40,15 @@ def test_public_ui_and_health() -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "Courseful" in home.text
+    assert "가볼 곳부터 이동시간까지" in home.text
+    assert "Mock Agent" not in home.text
+    assert "�" not in home.text
     assert "default-src 'self'" in home.headers["content-security-policy"]
+
+    assert client.head("/").status_code == 200
+    favicon = client.get("/favicon.ico")
+    assert favicon.status_code == 200
+    assert favicon.headers["content-type"].startswith("image/svg+xml")
 
     health = client.get("/health")
     assert health.status_code == 200
@@ -60,6 +69,9 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert all(stop["indoor"] is True for stop in result["course"]["stops"])
     assert result["known_total_cost"] <= 100_000
     assert result["agent_execution"]["mode"] == "deterministic_mock"
+    assert result["tourism"]["source"] == "local-tour-catalog"
+    assert result["tourism"]["count"] >= 1
+    assert "get_tourist_attractions" in result["agent_execution"]["tools"]
     assert any("Mock" in warning for warning in result["warnings"])
 
 

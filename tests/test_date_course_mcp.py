@@ -28,6 +28,14 @@ def test_date_course_server_exposes_plan_tools() -> None:
             assert result.structuredContent["source"] == "mock-weather-provider"
             assert result.structuredContent["condition"] == "rain"
 
+            tour_result = await session.call_tool(
+                "get_tourist_attractions",
+                {"city": "서울", "categories": ["역사관광"], "limit": 6},
+            )
+            assert tour_result.isError is False
+            assert tour_result.structuredContent["source"] == "local-tour-catalog"
+            assert tour_result.structuredContent["count"] >= 2
+
     asyncio.run(scenario())
 
 
@@ -55,6 +63,18 @@ def test_server_rejects_invalid_course_time_schema() -> None:
                         }
                     ],
                 },
+            )
+            assert result.isError is True
+
+    asyncio.run(scenario())
+
+
+def test_server_rejects_unsupported_tour_city_schema() -> None:
+    async def scenario() -> None:
+        async with connect_to_date_course_server() as session:
+            result = await session.call_tool(
+                "get_tourist_attractions",
+                {"city": "제주"},
             )
             assert result.isError is True
 
