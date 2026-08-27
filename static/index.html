@@ -32,12 +32,12 @@
     <section class="hero" aria-labelledby="hero-title">
       <div class="hero-copy-wrap">
         <p class="section-kicker">부산·서울 여행 플래너</p>
-        <h1 id="hero-title">가볼 곳부터 이동시간까지,<br><span>한 화면에서 정리하세요.</span></h1>
-        <p class="hero-copy">관광 명소, 날씨, 예산, 영업시간을 따로 찾지 않아도 됩니다. 조건에 맞는 장소만 골라 실제로 움직일 수 있는 순서로 정리합니다.</p>
+        <h1 id="hero-title">검색 탭은 줄이고,<br><span>움직일 수 있는 코스만 남기세요.</span></h1>
+        <p class="hero-copy">날씨·장소·이동·예산을 각각 찾는 대신, 세 MCP 서버가 조건을 조회하고 검증한 하루 동선을 만듭니다. 마음에 들면 별도 Booking MCP로 안전한 모의 예약 흐름까지 확인할 수 있습니다.</p>
         <ul class="hero-points" aria-label="서비스 특징">
-          <li><strong>2개 도시</strong><span>부산·서울 카탈로그</span></li>
-            <li><strong>도구 11개</strong><span>조회부터 예약까지</span></li>
-          <li><strong>0원</strong><span>로그인 없이 바로 사용</span></li>
+          <li><strong>3개 조회 MCP</strong><span>실제 stdio 실행</span></li>
+          <li><strong>1개 액션 MCP</strong><span>확인 뒤에만 실행</span></li>
+          <li><strong>0원</strong><span>로그인·결제 없음</span></li>
         </ul>
       </div>
       <aside class="route-preview" aria-label="코스 구성 예시">
@@ -61,6 +61,21 @@
         </div>
         <p>필수 조건은 먼저 지키고, 취향은 가능한 범위에서 반영합니다.</p>
       </header>
+
+      <section class="quick-start" aria-labelledby="quick-start-title">
+        <div class="quick-start-heading">
+          <div><span class="eyebrow-number">01</span><div><h3 id="quick-start-title">어떤 하루가 필요한가요?</h3><p>가까운 시나리오를 고르면 아래 조건을 한 번에 채웁니다. 이후 원하는 항목만 바꾸세요.</p></div></div>
+          <span class="selection-help">6가지 시작점 · 자유 수정</span>
+        </div>
+        <div class="preset-grid" role="list" aria-label="빠른 시작 시나리오">
+          <button class="preset-card is-active" type="button" data-preset="rainy-date" aria-pressed="true"><span>비 오는 날</span><strong>실내 데이트</strong><small>카페 · 문화 · 대화</small></button>
+          <button class="preset-card" type="button" data-preset="parents"><span>부모님과</span><strong>편안한 서울</strong><small>짧은 걷기 · 역사 · 식사</small></button>
+          <button class="preset-card" type="button" data-preset="family"><span>아이와</span><strong>부산 반나절</strong><small>실내 · 체험 · 자동차</small></button>
+          <button class="preset-card" type="button" data-preset="friends"><span>친구들과</span><strong>서울 야경</strong><small>사진 · 식사 · 대화</small></button>
+          <button class="preset-card" type="button" data-preset="anniversary"><span>연인과</span><strong>기념일 코스</strong><small>전망 · 카페 · 저녁</small></button>
+          <button class="preset-card" type="button" data-preset="culture"><span>가성비</span><strong>문화 산책</strong><small>미술 · 역사 · 대중교통</small></button>
+        </div>
+      </section>
 
       <form id="planner-form" class="planner-form">
         <section class="form-section" aria-labelledby="step-one-title">
@@ -125,8 +140,13 @@
           </fieldset>
         </section>
 
+        <aside class="selection-summary" aria-labelledby="selection-summary-title">
+          <div><span class="eyebrow-number">02</span><div><h3 id="selection-summary-title">현재 선택</h3><p>제출 전에 실제 계산에 들어갈 핵심 조건입니다.</p></div></div>
+          <dl id="selection-summary-list" aria-live="polite"></dl>
+        </aside>
+
         <div class="submit-row">
-          <div class="submit-note"><strong>코스 생성만으로 예약되지는 않습니다.</strong><span>결과 화면에서 별도 확인해야 모의 예약 액션이 실행됩니다.</span></div>
+          <div class="submit-note"><strong>코스 생성만으로 예약되지는 않습니다.</strong><span id="submit-progress">Weather → Tour → Route 순서로 조회하고 검증합니다.</span></div>
           <button class="primary-button" type="submit"><span class="button-label">검증된 코스 만들기</span><span aria-hidden="true">→</span></button>
         </div>
       </form>
@@ -137,6 +157,14 @@
         <div><p class="section-kicker">코스 결과</p><h2>오늘의 추천 동선</h2></div>
         <div id="validation-badge" class="validation-badge">검증 중</div>
       </header>
+      <section class="mcp-proof" aria-labelledby="mcp-proof-title">
+        <div class="mcp-proof-copy">
+          <p class="section-kicker">실행 증거</p>
+          <h3 id="mcp-proof-title">이 결과를 만든 MCP 호출</h3>
+          <p id="mcp-proof-description">서버 프로세스와 Tool 실행 결과를 확인합니다.</p>
+        </div>
+        <div id="mcp-pipeline" class="mcp-pipeline"></div>
+      </section>
       <div id="summary-strip" class="summary-strip"></div>
       <div class="result-grid">
         <section class="timeline-panel" aria-labelledby="timeline-title">
@@ -168,7 +196,7 @@
         </div>
       </section>
       <details class="trace-panel">
-        <summary>검증 도구 실행 내역</summary>
+        <summary>개발자용 Tool arguments 보기</summary>
         <div id="trace-list" class="trace-list"></div>
       </details>
     </section>
@@ -179,16 +207,16 @@
         <p>그럴듯한 설명보다 일정이 실제로 성립하는지를 먼저 봅니다.</p>
       </header>
       <div class="method-grid">
-        <article><span>01</span><h3>Weather MCP</h3><p>날씨 조회 서버가 지역과 날짜 조건을 독립적으로 제공합니다.</p></article>
-        <article><span>02</span><h3>Tour MCP</h3><p>관광 카탈로그와 장소 상세를 안정적인 place_id로 연결합니다.</p></article>
-        <article><span>03</span><h3>Route MCP</h3><p>동선·비용·필수 조건을 결정론적으로 계산하고 검증합니다.</p></article>
-        <article><span>04</span><h3>Booking MCP</h3><p>명시적 확인 뒤에만 외부 쓰기 없는 모의 예약 액션을 실행합니다.</p></article>
+        <article><span>01 · 조회</span><h3>Weather MCP</h3><p>독립 Python 프로세스가 지역과 날짜 조건을 확인합니다.</p></article>
+        <article><span>02 · 탐색</span><h3>Tour MCP</h3><p>관광 카탈로그를 조회하고 안정적인 place_id를 전달합니다.</p></article>
+        <article><span>03 · 검증</span><h3>Route MCP</h3><p>장소 사이 경로와 최종 일정 성립 여부를 다시 검증합니다.</p></article>
+        <article><span>04 · 액션</span><h3>Booking MCP</h3><p>결과 화면의 동의를 받은 뒤에만 별도 프로세스로 실행됩니다.</p></article>
       </div>
     </section>
 
     <section id="data-guide" class="data-guide" aria-labelledby="data-title">
       <div><p class="section-kicker">데이터 안내</p><h2 id="data-title">현재 제공 범위</h2></div>
-      <div class="data-copy"><p><strong>관광 정보는 로컬 교육용 카탈로그입니다.</strong> 장소 이름, 분류, 짧은 설명처럼 쉽게 변하지 않는 정보만 사용합니다.</p><p>무료 공개판의 코스 생성은 같은 도메인 함수를 서버 내부에서 실행하며, 별도 프로세스 호출은 예약 버튼의 Booking MCP에서만 일어납니다. Booking MCP도 프로세스 메모리와 로그만 사용하는 모의 액션이며 개인정보를 저장하지 않습니다.</p></div>
+      <div class="data-copy"><p><strong>관광 정보는 로컬 교육용 카탈로그입니다.</strong> 외부 실시간 사업자 데이터가 아니라 교육용 Mock이므로 장소 이름·분류·설명과 계산 결과를 시연합니다.</p><p>코스 생성 때 Weather·Tour·Route MCP를 실제 stdio 자식 프로세스로 호출합니다. Booking MCP도 별도 프로세스로 실행되지만 메모리와 로그만 사용하는 모의 액션이며 개인정보를 저장하지 않습니다.</p></div>
     </section>
   </main>
 

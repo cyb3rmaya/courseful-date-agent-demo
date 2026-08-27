@@ -107,8 +107,9 @@ Agent는 예약 Tool을 코스 검증 통과 뒤에만 호출할 수 있습니�
 ```mermaid
 flowchart LR
     UI[브라우저 UI] --> API[FastAPI /api/v1]
-    API --> Course[결정론적 Course 로직]
+    API --> Course[결정론적 Course 후보 생성]
     API --> BookingAPI[Booking API]
+    Course --> Host
     CLI[06_mcp_call.py] --> Agent[DateCourseAgent]
     Agent --> Host[_multi_mcp_client.py]
     Registry[mcp_servers.json] --> Host
@@ -145,10 +146,11 @@ Streamable HTTP를 표준 전송으로 정의하며, Streamable HTTP가 2024-11-
 
 현재 정적 UI가 이미 `POST /api/v1/course-plans`와 `POST /api/v1/bookings`를 호출하며,
 Booking API는 JSON 레지스트리에서 `booking` 서버만 선택해 실제 stdio MCP Tool을
-호출합니다. 무료 공개판의 코스 생성 API는 응답 지연과 LLM 비용을 피하기 위해 동일한
-도메인 함수를 인프로세스로 실행합니다. 따라서 화면에는 네 서버를 **등록됨**으로 표시하고,
-코스 생성에서 네 서버가 모두 호출됐다고 표시하지 않습니다. 네 MCP를 실제로 함께 호출하는
-경로는 `06_mcp_call.py`와 `07_multi_mcp_check.py`입니다.
+호출합니다. 코스 생성 API도 결정론적으로 후보를 만든 뒤 Weather·Tour·Route 서버를 실제
+stdio 자식 프로세스로 열어 날씨, 관광 후보, 구간 경로, 최종 검증을 다시 호출합니다.
+응답의 `agent_execution.trace`에는 서버명, Tool, arguments, 전송 방식, 실행 시간이 남고
+화면의 ‘실행 증거’ 패널에서 이를 요약합니다. MCP 프로세스 장애 때만 같은 도메인 함수의
+`in_process_fallback`으로 내려가며 경고를 표시합니다.
 React/Next.js로 교체해도 이 HTTP 계약은 그대로 유지할 수 있습니다. 예약 패널은 사용자가
 모의 실행임을 체크해야 활성화되며 확인 ID와 `actual_side_effect: false`를 표시합니다.
 
@@ -156,7 +158,9 @@ React/Next.js로 교체해도 이 HTTP 계약은 그대로 유지할 수 있습�
 
 - Wanderlog: 일정과 지도/명소를 한 화면에서 비교하는 정보 구조
 - GitHub Primer: 명확한 카드 경계, 상태 배지, 점진적 상세 공개
-- GOV.UK Design System: 상대 단위 글자 크기, 굵은 위계, 작은 화면 가독성
+- GOV.UK Design System: 복수 선택의 명시적 힌트와 항목별 설명
+- USWDS: 실제 선형 실행 단계에만 진행 상태를 사용하고 현재·완료·대기를 구분
+- 6개 시나리오 프리셋과 실시간 선택 요약으로 시작 비용을 줄이고 세부값은 자유 수정
 - 브랜드 화면이나 오픈소스 코드를 복제하지 않고 패턴과 원칙만 재구성
 - 외부 폰트 없이 한국어 시스템 글꼴을 사용하고 모든 소스 파일을 UTF-8로 유지
 

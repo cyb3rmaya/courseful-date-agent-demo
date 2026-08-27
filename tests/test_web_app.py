@@ -40,7 +40,9 @@ def test_public_ui_and_health() -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "Courseful" in home.text
-    assert "가볼 곳부터 이동시간까지" in home.text
+    assert "검색 탭은 줄이고" in home.text
+    assert "어떤 하루가 필요한가요?" in home.text
+    assert "이 결과를 만든 MCP 호출" in home.text
     assert "Mock Agent" not in home.text
     assert "\ufffd" not in home.text
     assert "default-src 'self'" in home.headers["content-security-policy"]
@@ -74,8 +76,19 @@ def test_course_endpoint_obeys_rainy_indoor_constraint() -> None:
     assert result["tourism"]["source"] == "local-tour-catalog"
     assert result["tourism"]["count"] >= 1
     assert "get_tourist_attractions" in result["agent_execution"]["domain_steps"]
-    assert result["agent_execution"]["execution_path"] == "in_process_free_demo"
-    assert result["agent_execution"]["mcp_servers_called"] == []
+    assert result["agent_execution"]["execution_path"] == "stdio_mcp_verified"
+    assert result["agent_execution"]["mcp_servers_called"] == [
+        "weather",
+        "tour",
+        "route",
+    ]
+    assert [item["server"] for item in result["agent_execution"]["trace"][:2]] == [
+        "weather",
+        "tour",
+    ]
+    assert result["agent_execution"]["trace"][-1]["tool"] == "validate_course"
+    assert all(item["transport"] == "stdio" for item in result["agent_execution"]["trace"])
+    assert result["agent_execution"]["mcp_total_duration_ms"] > 0
     assert result["agent_execution"]["registered_mcp_servers"] == [
         "weather",
         "tour",

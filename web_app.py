@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import date as date_type
 from pathlib import Path
 from typing import Literal
@@ -421,7 +422,7 @@ def build_mock_course(payload: CourseRequest) -> dict:
         },
         "agent_execution": {
             "mode": "deterministic_mock",
-            "execution_path": "in_process_free_demo",
+            "execution_path": "candidate_in_process_pending_mcp",
             "registered_mcp_servers": ["weather", "tour", "route", "booking"],
             "mcp_servers_called": [],
             "domain_steps": [
@@ -443,6 +444,109 @@ def build_mock_course(payload: CourseRequest) -> dict:
             "preserved_place_ids": preserved_history,
         },
     }
+
+
+def _mcp_payload(result, tool_name: str) -> dict:
+    if result.isError or not isinstance(result.structuredContent, dict):
+        raise RuntimeError(f"{tool_name} MCP Tool이 구조화 결과를 반환하지 않았습니다.")
+    return result.structuredContent
+
+
+async def verify_course_with_mcp(payload: CourseRequest, course: dict) -> dict:
+    """공개 코스 결과의 핵심 조회·경로·검증을 실제 stdio MCP 호출로 재확인합니다."""
+    trace: list[dict] = []
+    verification_started = time.perf_counter()
+    async with connect_to_mcp_servers(
+        server_names={"weather", "tour", "route"}
+    ) as client:
+        async def call(tool: str, arguments: dict) -> dict:
+            started = time.perf_counter()
+            result = await client.call_tool(tool, arguments)
+            content = _mcp_payload(result, tool)
+            trace.append(
+                {
+                    "turn": len(trace) + 1,
+                    "server": client.tool_to_server[tool],
+                    "tool": tool,
+                    "transport": "stdio",
+                    "arguments": arguments,
+                    "source": content.get("source", "mcp-tool-result"),
+                    "duration_ms": round((time.perf_counter() - started) * 1000),
+                    "is_error": False,
+                }
+            )
+            return content
+
+        weather = await call(
+            "get_weather",
+            {"location": payload.location, "date": payload.date},
+        )
+        tourism = await call(
+            "get_tourist_attractions",
+            {
+                "city": payload.location,
+                "categories": payload.tourism_categories or None,
+                "limit": 8,
+            },
+        )
+        stops = course["course"]["stops"]
+        for index in range(1, len(stops)):
+            route = await call(
+                "calculate_route",
+                {
+                    "origin_place_id": stops[index - 1]["place_id"],
+                    "destination_place_id": stops[index]["place_id"],
+                    "transportation": payload.transportation,
+                },
+            )
+            stops[index]["route_from_previous"] = route
+
+        intent = UserIntentInput(
+            companion_type=payload.companion_type,
+            location=payload.location,
+            date=payload.date,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            party_size=payload.party_size,
+            budget=payload.budget,
+            transportation=payload.transportation,
+            hard_constraints=payload.hard_constraints,
+            soft_preferences=payload.soft_preferences,
+            assumptions=["외부 Provider 대신 교육용 Mock 데이터를 사용합니다."],
+            weather_condition=weather.get("condition"),
+            max_walking_distance_m=payload.max_walking_distance_m,
+        )
+        validation = await call(
+            "validate_course",
+            {"intent": intent.model_dump(), "stops": stops},
+        )
+
+    course["intent_summary"]["weather"] = weather
+    course["tourism"] = tourism
+    course["known_total_cost"] = validation.get("known_total_cost", 0)
+    course["unknown_costs"] = validation.get("unknown_costs", [])
+    course["course"]["total_route_time"] = validation.get("total_route_time", 0)
+    course["course"]["total_walking_distance"] = validation.get(
+        "total_walking_distance", 0
+    )
+    course["validation"] = {
+        "status": "pass" if validation.get("valid") else "fail",
+        "errors": validation.get("errors", []),
+        "warnings": validation.get("warnings", []),
+        "unknowns": validation.get("unknowns", []),
+    }
+    course["agent_execution"].update(
+        {
+            "execution_path": "stdio_mcp_verified",
+            "mcp_servers_called": ["weather", "tour", "route"],
+            "transport": "stdio",
+            "trace": trace,
+            "mcp_total_duration_ms": round(
+                (time.perf_counter() - verification_started) * 1000
+            ),
+        }
+    )
+    return course
 
 
 app = FastAPI(
@@ -493,13 +597,22 @@ def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/course-plans")
-def create_course(payload: CourseRequest) -> dict:
+async def create_course(payload: CourseRequest) -> dict:
     if _minutes(payload.start_time) >= _minutes(payload.end_time):
         raise HTTPException(status_code=422, detail="종료 시간은 시작 시간보다 늦어야 합니다.")
     try:
-        return build_mock_course(payload)
+        course = build_mock_course(payload)
+        return await verify_course_with_mcp(payload, course)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (OSError, RuntimeError) as exc:
+        course = build_mock_course(payload)
+        course["agent_execution"]["execution_path"] = "in_process_fallback"
+        course["agent_execution"]["fallback_reason"] = type(exc).__name__
+        course["warnings"].append(
+            "MCP 프로세스 확인에 실패해 동일한 결정론적 로컬 함수 결과를 반환했습니다."
+        )
+        return course
 
 
 @app.post("/api/v1/bookings")

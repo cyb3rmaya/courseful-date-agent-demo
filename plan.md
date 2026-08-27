@@ -2980,6 +2980,7 @@ UI 역시:
 - Server 목록과 실행 명령을 `mcp_servers.json`에서 관리한다.
 - Client는 등록된 모든 서버를 동시에 유지하고 Tool discovery 결과로 호출을 라우팅한다.
 - 공개 웹에서 프론트엔드 → Backend → 모의 Booking 액션 흐름을 직접 확인한다.
+- 공개 코스 생성에서도 Weather·Tour·Route stdio 프로세스와 Tool 호출 증거를 반환한다.
 
 ## 최종 서버 구성
 
@@ -3018,6 +3019,7 @@ flowchart TB
     Front[Browser / future React·Next.js] --> Backend[FastAPI]
     Backend --> CourseAPI[Course API]
     Backend --> BookingAPI[Simulated Booking API]
+    CourseAPI --> Multi
     User[CLI User] --> Agent[DateCourseAgent]
     Agent --> Multi[Multi MCP Client]
     Config[mcp_servers.json] --> Multi
@@ -3046,5 +3048,32 @@ flowchart TB
 - [x] 명시적 확인 없는 예약 거절
 - [x] 코스 검증 전 예약과 사용자 원문 동의 없는 Agent 확정을 코드에서 차단
 - [x] 웹 프론트엔드 모의 예약 연동
+- [x] 공개 코스 API에서 Weather·Tour·Route MCP 실제 호출 및 실행 증거 표시
 - [x] UTF-8 콘솔 출력
 - [x] 단위·stdio·멀티 MCP·웹 API 테스트
+
+---
+
+# 66. 설득력·선택 UX·실행 증거 재설계
+
+## 비판 재검토
+
+1. 기존 화면은 코스 결과를 보여줬지만 MCP가 왜 필요한지 사용자가 판단할 근거가 약했다.
+2. 입력 항목은 많았지만 매번 처음부터 조합해야 해서 선택 폭과 편의성이 동시에 낮았다.
+3. 코스 생성은 동일 도메인 함수를 인프로세스로 실행해 실제 멀티 MCP 시나리오를 UI가 증명하지 못했다.
+
+## 적용
+
+- 자주 쓰는 조건 조합을 6개 시나리오 프리셋으로 제공하고 선택 후 모든 값을 수정할 수 있게 한다.
+- 제출 직전 지역·동행·시간·예산·이동·우선순위를 한 번에 확인하는 선택 요약을 제공한다.
+- 코스 생성 API가 Weather·Tour·Route MCP를 stdio 프로세스로 실행한다.
+- 결과에 서버·Tool·transport·arguments·duration을 포함한 실행 Trace를 반환한다.
+- 일반 사용자는 네 서버의 완료·대기·오류 상태를 ‘실행 증거’ 패널에서 보고,
+  상세 arguments는 점진적으로 펼쳐 본다.
+- Booking은 코스 생성과 분리된 상태로 유지하고 명시적 확인 뒤에만 네 번째 MCP를 실행한다.
+
+## 남은 한계
+
+- Provider 데이터는 Mock이므로 실시간 날씨·운영시간·가격·예약 가능 여부를 보장하지 않는다.
+- 서버는 물리적으로 분리된 원격 서비스가 아니라 동일 머신의 stdio 자식 프로세스다.
+- 실제 예약으로 전환하려면 인증, 권한, rate limit, 영구 멱등성 저장소, 감사 로그가 선행되어야 한다.
