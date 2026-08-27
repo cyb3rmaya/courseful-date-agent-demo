@@ -16,12 +16,14 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field, field_validator
 
 from _multi_mcp_client import MultiMCPClient, connect_to_mcp_servers
 
 
 STATIC_DIR = Path(__file__).with_name("static")
+load_dotenv(Path(__file__).with_name(".env"))
 
 
 class TripBriefRequest(BaseModel):
