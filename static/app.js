@@ -6,14 +6,28 @@ let publicConfig = { kakao_map_enabled: false, kakao_javascript_key: "" };
 let kakaoReady = null;
 const publicConfigReady = loadPublicConfig();
 
-const won = new Intl.NumberFormat("ko-KR");
 const qs = (selector) => document.querySelector(selector);
 const text = (selector, value) => { qs(selector).textContent = value ?? "-"; };
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
+
+function safeKakaoUrl(value) {
+  try {
+    const url = new URL(String(value));
+    const allowedHost = url.hostname === "map.kakao.com" || url.hostname === "place.map.kakao.com";
+    return allowedHost && ["http:", "https:"].includes(url.protocol) ? url.href : "#";
+  } catch (_) {
+    return "#";
+  }
+}
 
 function dateOffset(days) {
-  const value = new Date();
-  value.setDate(value.getDate() + days);
-  return value.toISOString().slice(0, 10);
+  const kst = new Date(Date.now() + (9 * 60 * 60 * 1000) + (days * 24 * 60 * 60 * 1000));
+  return kst.toISOString().slice(0, 10);
 }
 
 form.elements.date.value = dateOffset(1);
@@ -23,6 +37,7 @@ form.elements.date.max = dateOffset(15);
 async function loadPublicConfig() {
   try {
     const response = await fetch("/api/v1/public-config");
+    if (!response.ok) throw new Error("공개 설정을 불러오지 못했습니다.");
     publicConfig = await response.json();
   } catch (_) {
     publicConfig = { kakao_map_enabled: false, kakao_javascript_key: "" };
@@ -31,7 +46,7 @@ async function loadPublicConfig() {
 
 function loadKakaoSdk() {
   if (!publicConfig.kakao_map_enabled) return Promise.resolve(false);
-  if (window.kakao?.maps) return Promise.resolve(true);
+  if (window.kakao?.maps?.Map) return Promise.resolve(true);
   if (kakaoReady) return kakaoReady;
   kakaoReady = new Promise((resolve) => {
     const script = document.createElement("script");
@@ -57,131 +72,141 @@ function loadKakaoSdk() {
   return kakaoReady;
 }
 
-function providerBadge(item) {
-  const live = item.provider_status === "live";
-  return `<span class="provider ${live ? "live" : "fallback"}">${live ? "LIVE DATA" : "FALLBACK"}</span>`;
+function renderCourse(course) {
+  text("#result-title", course.title);
+  const companionPhrase = {
+    friend: "친구와 함께",
+    family: "가족과 함께",
+    couple: "연인과 함께",
+  }[course.companion] || `${course.companion_label}과 함께`;
+  text("#companion-badge", companionPhrase);
+  text("#course-headline", course.headline);
+  text("#course-description", course.description);
+  text("#course-source", course.provider_status === "live" ? "Kakao Local 실시간 명소" : "검증된 지역 명소");
+  qs("#spot-list").innerHTML = course.stops.map((stop) => `
+    <li class="spot-card">
+      <span class="spot-number">${String(stop.sequence).padStart(2, "0")}</span>
+      <div>
+        <small>${escapeHtml(stop.guide)}</small>
+        <h4>${escapeHtml(stop.name)}</h4>
+        <p>${escapeHtml(stop.description)}</p>
+        <address>${escapeHtml(stop.address)}</address>
+      </div>
+      <a href="${safeKakaoUrl(stop.kakao_map_url)}" target="_blank" rel="noreferrer" aria-label="${escapeHtml(stop.name)} Kakao 지도에서 열기">↗</a>
+    </li>`).join("");
 }
 
 function renderWeather(data) {
   const current = data.weather.current;
   const forecast = data.weather.forecast;
-  text("#current-condition", current.condition);
+  text("#current-weather", current.condition);
   text("#current-temperature", `${current.temperature_c}°`);
-  qs("#current-details").innerHTML = `
-    <div><dt>습도</dt><dd>${current.humidity_percent ?? "-"}%</dd></div>
-    <div><dt>바람</dt><dd>${current.wind_speed_ms ?? "-"} m/s</dd></div>
-    <div><dt>데이터</dt><dd>${providerBadge(current)}</dd></div>`;
   text("#forecast-date", forecast.date);
-  text("#forecast-condition", `${forecast.condition} · ${forecast.temperature_c}°`);
-  qs("#forecast-details").innerHTML = `
-    <div><dt>최저 / 최고</dt><dd>${forecast.min_temperature_c ?? "-"}° / ${forecast.max_temperature_c ?? "-"}°</dd></div>
-    <div><dt>강수확률</dt><dd>${forecast.rain_probability_percent ?? "-"}%</dd></div>
-    <div><dt>데이터</dt><dd>${providerBadge(forecast)}</dd></div>`;
+  text("#forecast-weather", forecast.condition);
+  text("#forecast-temperature", `${forecast.min_temperature_c}° / ${forecast.max_temperature_c}° · 비 ${forecast.rain_probability_percent}%`);
 }
 
-function renderHotels(data) {
-  text("#hotel-count", `${data.hotels.count}곳 · 1박 ${won.format(data.hotels.max_price_per_night)}원 이하`);
-  qs("#hotel-list").innerHTML = data.hotels.hotels.length
-    ? data.hotels.hotels.map((hotel, index) => `
-      <article class="hotel-card">
-        <span class="hotel-index">${String(index + 1).padStart(2, "0")}</span>
-        <div><small>${hotel.district}</small><h4>${hotel.name}</h4><p>평점 ${hotel.rating.toFixed(1)} · 데모 카탈로그</p></div>
-        <div class="hotel-price"><strong>${won.format(hotel.price_per_night)}원</strong><span>/ 1박</span><a href="${hotel.kakao_map_url}" target="_blank" rel="noreferrer">지도 보기 ↗</a></div>
-      </article>`).join("")
-    : `<div class="empty">이 가격 이하의 데모 호텔이 없습니다. 상한을 조금 높여 보세요.</div>`;
+function showMapFallback(label, title, description) {
+  const mapNode = qs("#kakao-map");
+  const setup = qs("#map-setup");
+  mapNode.hidden = true;
+  setup.hidden = false;
+  setup.querySelector("span").textContent = label;
+  setup.querySelector("strong").textContent = title;
+  setup.querySelector("p").textContent = description;
 }
 
-function renderSpots(data) {
-  text("#spot-source", data.spots.provider_status === "live" ? "Kakao Local API" : "검증된 데모 카탈로그");
-  qs("#spot-list").innerHTML = data.spots.spots.map((spot, index) => `
-    <a class="spot-card" href="${spot.kakao_map_url}" target="_blank" rel="noreferrer">
-      <span>${String(index + 1).padStart(2, "0")}</span>
-      <div><small>${spot.category}</small><h4>${spot.name}</h4><p>${spot.description}</p><address>${spot.address}</address></div>
-      <b aria-hidden="true">↗</b>
-    </a>`).join("");
-}
-
-async function renderMap(spots) {
+async function renderMap(stops) {
   const mapNode = qs("#kakao-map");
   const setup = qs("#map-setup");
   const loaded = await loadKakaoSdk();
-  if (!loaded || !spots.length) {
-    mapNode.hidden = true;
-    setup.hidden = false;
-    setup.querySelector("span").textContent = loaded ? "NO MAP POINTS" : "MAP LOAD FAILED";
-    setup.querySelector("strong").innerHTML = loaded
-      ? "표시할 명소 좌표가 없습니다."
-      : "Kakao 지도를 불러오지 못했습니다.";
-    setup.querySelector("p").textContent = loaded
-      ? "다른 지역을 선택해 다시 조회해 주세요."
-      : "키·허용 도메인·카카오맵 사용 설정을 확인한 뒤 다시 시도해 주세요. 명소의 지도 링크는 계속 사용할 수 있습니다.";
+  if (!loaded || !stops.length) {
+    showMapFallback(
+      loaded ? "NO COURSE STOPS" : "MAP LOAD FAILED",
+      loaded ? "표시할 코스가 없습니다." : "Kakao 지도를 불러오지 못했습니다.",
+      "명소별 지도 링크는 계속 사용할 수 있습니다.",
+    );
     return;
   }
   try {
     mapNode.hidden = false;
     setup.hidden = true;
+    mapNode.replaceChildren();
+    const positions = stops.map((stop) => new kakao.maps.LatLng(stop.lat, stop.lng));
     const bounds = new kakao.maps.LatLngBounds();
-    const map = new kakao.maps.Map(mapNode, {
-      center: new kakao.maps.LatLng(spots[0].lat, spots[0].lng),
-      level: 7,
+    positions.forEach((position) => bounds.extend(position));
+    const map = new kakao.maps.Map(mapNode, { center: positions[0], level: 7 });
+
+    new kakao.maps.Polyline({
+      map,
+      path: positions,
+      strokeWeight: 5,
+      strokeColor: "#171714",
+      strokeOpacity: 0.85,
+      strokeStyle: "solid",
     });
-    spots.forEach((spot) => {
-      const position = new kakao.maps.LatLng(spot.lat, spot.lng);
-      bounds.extend(position);
-      const marker = new kakao.maps.Marker({ map, position, title: spot.name });
-      const info = new kakao.maps.InfoWindow({ content: `<div class="map-label">${spot.name}</div>` });
+
+    stops.forEach((stop, index) => {
+      const position = positions[index];
+      const marker = new kakao.maps.Marker({ map, position, title: stop.name });
+      const number = new kakao.maps.CustomOverlay({
+        map,
+        position,
+        content: `<div class="map-sequence" title="${escapeHtml(stop.name)}">${index + 1}</div>`,
+        xAnchor: 0.5,
+        yAnchor: 1.7,
+      });
+      const info = new kakao.maps.InfoWindow({
+        content: `<div class="map-label"><b>${index + 1}</b> ${escapeHtml(stop.name)}</div>`,
+      });
       kakao.maps.event.addListener(marker, "click", () => info.open(map, marker));
+      number.setMap(map);
     });
-    map.setBounds(bounds, 50, 50, 50, 50);
+    map.setBounds(bounds, 70, 70, 70, 70);
   } catch (error) {
     console.warn("Kakao map render failed", error);
-    mapNode.hidden = true;
-    setup.hidden = false;
-    setup.querySelector("span").textContent = "MAP RENDER FAILED";
-    setup.querySelector("strong").innerHTML = "Kakao 지도 렌더링에 실패했습니다.";
-    setup.querySelector("p").textContent = "명소의 개별 지도 링크는 계속 사용할 수 있습니다. 잠시 후 다시 시도해 주세요.";
+    showMapFallback("MAP RENDER FAILED", "Kakao 지도 렌더링에 실패했습니다.", "명소별 지도 링크는 계속 사용할 수 있습니다.");
   }
 }
 
 function renderTrace(execution) {
   qs("#trace-list").innerHTML = execution.trace.map((item) => `
     <article>
-      <div><span>${item.server.toUpperCase()} MCP</span><b>${item.duration_ms} ms</b></div>
-      <strong>${item.tool}</strong>
-      <code>${JSON.stringify(item.arguments)}</code>
-      <small>${item.transport} · ${item.provider_status || "catalog"}</small>
+      <div><span>${escapeHtml(item.server).toUpperCase()} MCP</span><b>${item.duration_ms} ms</b></div>
+      <strong>${escapeHtml(item.tool)}</strong>
+      <code>${escapeHtml(JSON.stringify(item.arguments))}</code>
+      <small>${escapeHtml(item.transport)} · ${escapeHtml(item.provider_status || "catalog")}</small>
     </article>`).join("");
 }
 
 function renderWarnings(warnings) {
   const node = qs("#warnings");
-  node.innerHTML = warnings.map((warning) => `<p><strong>확인</strong>${warning}</p>`).join("");
+  node.innerHTML = warnings.map((warning) => `<p><strong>알림</strong><span>${escapeHtml(warning)}</span></p>`).join("");
   node.hidden = warnings.length === 0;
 }
 
 async function renderResult(data) {
-  text("#result-location", data.intent_summary.location);
-  qs("#result-meta").innerHTML = `<strong>${data.intent_summary.date}</strong><span>${data.mcp_execution.total_duration_ms} ms · 서버 2대 병렬 호출</span>`;
+  const course = data.course;
+  qs("#result-meta").innerHTML = `<strong>${escapeHtml(data.intent_summary.date)}</strong><span>${course.stop_count}곳 · ${escapeHtml(course.companion_label)} 코스</span>`;
+  renderCourse(course);
   renderWeather(data);
-  renderHotels(data);
-  renderSpots(data);
   renderTrace(data.mcp_execution);
   renderWarnings(data.warnings);
   resultSection.hidden = false;
-  await renderMap(data.spots.spots);
+  await renderMap(course.stops);
   resultSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   submitButton.disabled = true;
-  submitButton.querySelector("span").textContent = "두 서버 연결 중";
-  statusLine.textContent = "Weather 8101과 Tour 8102에 Streamable HTTP로 요청하고 있습니다…";
+  submitButton.querySelector("span").textContent = "코스 연결 중";
+  statusLine.textContent = "Weather와 Tour MCP에서 날씨와 명소를 확인하고 있습니다…";
   const values = new FormData(form);
   const payload = {
     location: values.get("location"),
     date: values.get("date"),
-    max_hotel_price: Number(values.get("max_hotel_price")),
+    companion: values.get("companion"),
   };
   try {
     await publicConfigReady;
@@ -191,13 +216,13 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify(payload),
     });
     const body = await response.json();
-    if (!response.ok) throw new Error(body.detail || "조회에 실패했습니다.");
+    if (!response.ok) throw new Error(body.detail || "코스를 만들지 못했습니다.");
     await renderResult(body);
-    statusLine.textContent = `완료 · ${body.mcp_execution.trace.length}개 Tool을 실제 호출했습니다.`;
+    statusLine.textContent = `완료 · ${body.course.stop_count}곳을 한 코스로 연결했습니다.`;
   } catch (error) {
     statusLine.textContent = `오류 · ${error.message}`;
   } finally {
     submitButton.disabled = false;
-    submitButton.querySelector("span").textContent = "두 서버로 찾기";
+    submitButton.querySelector("span").textContent = "코스로 묶기";
   }
 });

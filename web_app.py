@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from _multi_mcp_client import MultiMCPClient, connect_to_mcp_servers
 
@@ -26,10 +26,39 @@ STATIC_DIR = Path(__file__).with_name("static")
 load_dotenv(Path(__file__).with_name(".env"))
 
 
+CompanionType = Literal["friend", "family", "couple"]
+
+COURSE_PROFILES: dict[CompanionType, dict[str, Any]] = {
+    "friend": {
+        "label": "친구",
+        "headline": "걷고, 보고, 밤 풍경으로 마무리하는 코스",
+        "description": "대화가 끊기지 않도록 분위기가 다른 장소를 가볍게 이어 붙였습니다.",
+        "categories": ["culture", "nature", "night_view", "history"],
+        "guides": ["재미있게 시작", "천천히 걷기", "밤 풍경으로 마무리"],
+    },
+    "family": {
+        "label": "가족",
+        "headline": "함께 보고 편하게 걷는 가족 나들이 코스",
+        "description": "볼거리와 산책을 섞어 세대가 달라도 무리 없이 즐기도록 구성했습니다.",
+        "categories": ["history", "culture", "nature", "night_view"],
+        "guides": ["차분하게 시작", "함께 둘러보기", "편안하게 산책"],
+    },
+    "couple": {
+        "label": "연인",
+        "headline": "산책에서 야경까지 자연스럽게 이어지는 데이트 코스",
+        "description": "나란히 걷고 이야기하기 좋은 장소를 골라 마지막 풍경까지 연결했습니다.",
+        "categories": ["nature", "culture", "night_view", "history"],
+        "guides": ["천천히 걷기", "함께 둘러보기", "야경으로 마무리"],
+    },
+}
+
+
 class TripBriefRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     location: Literal["서울", "부산", "제주"] = "부산"
     date: str
-    max_hotel_price: int = Field(default=150_000, ge=10_000, le=1_000_000)
+    companion: CompanionType = "couple"
 
     @field_validator("date")
     @classmethod
@@ -39,6 +68,42 @@ class TripBriefRequest(BaseModel):
         if not today <= selected <= today + timedelta(days=15):
             raise ValueError("여행 날짜는 오늘부터 15일 안에서 선택해야 합니다.")
         return value
+
+
+def _build_course(location: str, companion: CompanionType, spots: list[dict[str, Any]]) -> dict[str, Any]:
+    profile = COURSE_PROFILES[companion]
+    selected: list[dict[str, Any]] = []
+    used_ids: set[str] = set()
+    for category in profile["categories"]:
+        match = next(
+            (spot for spot in spots if spot.get("category") == category and str(spot.get("id")) not in used_ids),
+            None,
+        )
+        if match:
+            selected.append(match)
+            used_ids.add(str(match.get("id")))
+        if len(selected) == 3:
+            break
+    for spot in spots:
+        spot_id = str(spot.get("id"))
+        if spot_id not in used_ids and len(selected) < 3:
+            selected.append(spot)
+            used_ids.add(spot_id)
+
+    stops = [
+        {**spot, "sequence": index + 1, "guide": profile["guides"][index]}
+        for index, spot in enumerate(selected)
+    ]
+    return {
+        "location": location,
+        "companion": companion,
+        "companion_label": profile["label"],
+        "title": f"{location} {profile['label']} 코스",
+        "headline": profile["headline"],
+        "description": profile["description"],
+        "stop_count": len(stops),
+        "stops": stops,
+    }
 
 
 def _tool_payload(result: Any) -> dict[str, Any]:
@@ -169,13 +234,7 @@ async def create_trip_brief(payload: TripBriefRequest, request: Request) -> dict
         ("get_current_weather", {"location": payload.location}),
         ("get_weather_forecast", {"location": payload.location, "date": payload.date}),
     ]
-    tour_calls = [
-        (
-            "search_hotels",
-            {"location": payload.location, "max_price_per_night": payload.max_hotel_price, "limit": 5},
-        ),
-        ("search_spots", {"location": payload.location, "category": "all", "limit": 6}),
-    ]
+    tour_calls = [("search_spots", {"location": payload.location, "category": "all", "limit": 6})]
     try:
         (weather, weather_trace), (tour, tour_trace) = await asyncio.gather(
             _run_bundle(client, weather_calls),
@@ -186,23 +245,29 @@ async def create_trip_brief(payload: TripBriefRequest, request: Request) -> dict
 
     current = weather["get_current_weather"]
     forecast = weather["get_weather_forecast"]
-    hotels = tour["search_hotels"]
     spots = tour["search_spots"]
-    warnings = [
-        item
-        for item in [current.get("warning"), forecast.get("warning"), spots.get("warning"), hotels.get("notice")]
-        if item
-    ]
+    course = _build_course(payload.location, payload.companion, spots.get("spots", []))
+    warnings = list(
+        dict.fromkeys(
+            item
+            for item in [current.get("warning"), forecast.get("warning"), spots.get("warning")]
+            if item
+        )
+    )
     return {
         "request_id": f"trip-{uuid.uuid4().hex[:12]}",
         "intent_summary": {
             "location": payload.location,
             "date": payload.date,
-            "max_hotel_price": payload.max_hotel_price,
+            "companion": payload.companion,
+            "companion_label": COURSE_PROFILES[payload.companion]["label"],
         },
         "weather": {"current": current, "forecast": forecast},
-        "hotels": hotels,
-        "spots": spots,
+        "course": {
+            **course,
+            "source": spots.get("source"),
+            "provider_status": spots.get("provider_status"),
+        },
         "warnings": warnings,
         "mcp_execution": {
             "architecture": "two_independent_http_servers",

@@ -17,12 +17,12 @@ from ai_agent import DateCourseAgent
 COURSE_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_QUESTION = (
     "부산의 현재 날씨와 내일 예보를 확인하고, "
-    "1박 15만원 이하 호텔과 대표 관광 명소를 찾아 주세요."
+    "연인과 함께 갈 명소 세 곳을 데이트 코스로 묶어 주세요."
 )
 
 
 def _arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="두 MCP 여행 브리프 Agent 실행")
+    parser = argparse.ArgumentParser(description="Weather·Tour MCP 나들이 코스 Agent 실행")
     parser.add_argument("question", nargs="?", default=DEFAULT_QUESTION)
     return parser.parse_args()
 
